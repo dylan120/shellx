@@ -354,9 +354,6 @@ final class SSHPTYTransport {
             let bytesRead = read(fileDescriptor, &buffer, buffer.count)
             guard bytesRead > 0 else { return }
             if sink == .master {
-                if self.transferDirection == .downloadFromRemote, self.didSeeDownloadCompletionFrame {
-                    return
-                }
                 let data = Data(buffer.prefix(bytesRead))
                 self.send(data, trackAsUserInput: false)
             }
