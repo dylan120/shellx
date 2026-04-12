@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct SessionManagerView: View {
@@ -169,6 +170,65 @@ private struct TerminalTabWorkspaceView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(appModel.openTerminalSessions) { session in
+                        let sessionModel = appModel.terminalSessionModel(for: session.id)
+                        HStack(spacing: 6) {
+                            Image(systemName: "terminal")
+                                .font(.caption)
+                            Text(session.name)
+                                .font(.caption)
+                                .lineLimit(1)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .contentShape(Rectangle())
+                        .background(tabBackground(for: session.id), in: Capsule())
+                        .onTapGesture {
+                            appModel.activeTerminalSessionID = session.id
+                            appModel.selectedSessionID = session.id
+                        }
+                        .help("右击显示标签操作")
+                        .contextMenu {
+                            Button("切换到此标签") {
+                                appModel.activeTerminalSessionID = session.id
+                                appModel.selectedSessionID = session.id
+                            }
+                            Divider()
+                            Button("重连") {
+                                appModel.activeTerminalSessionID = session.id
+                                appModel.selectedSessionID = session.id
+                                sessionModel.reconnect(session: session) { sessionID in
+                                    appModel.markConnected(sessionID: sessionID)
+                                }
+                            }
+                            Button("断开") {
+                                appModel.activeTerminalSessionID = session.id
+                                appModel.selectedSessionID = session.id
+                                sessionModel.terminate()
+                            }
+                            Button("复制调试") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(sessionModel.terminalDebugSnapshot, forType: .string)
+                            }
+                            .disabled(sessionModel.terminalDebugSnapshot.isEmpty)
+                            Button("清空调试") {
+                                sessionModel.clearTerminalDebugSnapshot()
+                            }
+                            .disabled(sessionModel.terminalDebugSnapshot.isEmpty)
+                            Divider()
+                            Button("关闭标签") {
+                                onClose(session.id)
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+            }
+            .background(.thinMaterial)
+
             if !appModel.openTerminalSessions.isEmpty {
                 ZStack(alignment: .topTrailing) {
                     ForEach(appModel.openTerminalSessions) { session in
@@ -198,42 +258,6 @@ private struct TerminalTabWorkspaceView: View {
                     description: Text("从左侧会话树或详情面板中点击“连接”后，会在这里以标签页形式显示。")
                 )
             }
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(appModel.openTerminalSessions) { session in
-                        HStack(spacing: 6) {
-                            Image(systemName: "terminal")
-                                .font(.caption)
-                            Text(session.name)
-                                .font(.caption)
-                                .lineLimit(1)
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .contentShape(Rectangle())
-                        .background(tabBackground(for: session.id), in: Capsule())
-                        .onTapGesture {
-                            appModel.activeTerminalSessionID = session.id
-                            appModel.selectedSessionID = session.id
-                        }
-                        .help("右击显示标签操作")
-                        .contextMenu {
-                            Button("切换到此标签") {
-                                appModel.activeTerminalSessionID = session.id
-                                appModel.selectedSessionID = session.id
-                            }
-                            Divider()
-                            Button("关闭标签") {
-                                onClose(session.id)
-                            }
-                        }
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
-            }
-            .background(.thinMaterial)
         }
     }
 

@@ -33,13 +33,26 @@ struct TerminalWindowView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            ZStack(alignment: .bottomLeading) {
+                SwiftTermTerminalView(sessionModel: sessionModel)
+                    .background(Color(nsColor: .textBackgroundColor))
+
+                if let bannerText = sessionModel.transferState.bannerText ?? sessionModel.lastExitMessage,
+                   sessionModel.connectionState != .connected || sessionModel.transferState != .idle {
+                    ErrorBannerView(message: bannerText)
+                        .padding(12)
+                }
+            }
+
             HStack(spacing: 12) {
                 Label(sessionModel.terminalTitle, systemImage: "terminal")
-                    .font(.headline)
+                    .font(.subheadline.weight(.medium))
                 Text("\(session.destination):\(session.port)")
                     .foregroundStyle(.secondary)
+                    .font(.caption)
                 if let workingDirectory = sessionModel.workingDirectory, !workingDirectory.isEmpty {
                     Text(workingDirectory)
+                        .font(.caption)
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .foregroundStyle(.secondary)
@@ -63,37 +76,13 @@ struct TerminalWindowView: View {
                     .font(.caption)
                 } else {
                     Text(sessionModel.connectionState.displayText)
+                        .font(.caption)
                         .foregroundStyle(statusColor)
                 }
-                Button("重连") {
-                    connect()
-                }
-                Button("断开") {
-                    sessionModel.terminate()
-                }
-                Button("复制调试") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(sessionModel.terminalDebugSnapshot, forType: .string)
-                }
-                .disabled(sessionModel.terminalDebugSnapshot.isEmpty)
-                Button("清空调试") {
-                    sessionModel.clearTerminalDebugSnapshot()
-                }
-                .disabled(sessionModel.terminalDebugSnapshot.isEmpty)
             }
-            .padding()
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
             .background(.thinMaterial)
-
-            ZStack(alignment: .bottomLeading) {
-                SwiftTermTerminalView(sessionModel: sessionModel)
-                    .background(Color(nsColor: .textBackgroundColor))
-
-                if let bannerText = sessionModel.transferState.bannerText ?? sessionModel.lastExitMessage,
-                   sessionModel.connectionState != .connected || sessionModel.transferState != .idle {
-                    ErrorBannerView(message: bannerText)
-                        .padding(12)
-                }
-            }
         }
         .frame(minWidth: 860, minHeight: 520)
         .onAppear {
