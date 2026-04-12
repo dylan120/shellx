@@ -3,7 +3,7 @@ import Security
 
 final class SessionPasswordStore {
     private let service = "com.shellx.session-password"
-    private var cachedPasswords: [UUID: String] = [:]
+    private static var cachedPasswords: [UUID: String] = [:]
 
     func savePassword(_ password: String, for sessionID: UUID) throws {
         guard let data = password.data(using: .utf8) else {
@@ -17,7 +17,7 @@ final class SessionPasswordStore {
 
         if status == errSecSuccess {
             // 更新已有条目成功后，同步刷新进程内缓存，避免连接时再次触发授权。
-            cachedPasswords[sessionID] = password
+            Self.cachedPasswords[sessionID] = password
             return
         }
 
@@ -32,11 +32,11 @@ final class SessionPasswordStore {
             throw PasswordStoreError.keychain(addStatus)
         }
         // 进程内缓存一份，避免刚保存后立即连接时再次触发 Keychain 授权。
-        cachedPasswords[sessionID] = password
+        Self.cachedPasswords[sessionID] = password
     }
 
     func loadPassword(for sessionID: UUID) throws -> String? {
-        if let cachedPassword = cachedPasswords[sessionID] {
+        if let cachedPassword = Self.cachedPasswords[sessionID] {
             return cachedPassword
         }
 
@@ -56,7 +56,7 @@ final class SessionPasswordStore {
             throw PasswordStoreError.invalidEncoding
         }
         // 已经成功通过一次系统授权后，后续同进程内读取直接复用内存缓存。
-        cachedPasswords[sessionID] = password
+        Self.cachedPasswords[sessionID] = password
         return password
     }
 
@@ -65,7 +65,7 @@ final class SessionPasswordStore {
     }
 
     func deletePassword(for sessionID: UUID) throws {
-        cachedPasswords.removeValue(forKey: sessionID)
+        Self.cachedPasswords.removeValue(forKey: sessionID)
         let status = SecItemDelete(baseQuery(for: sessionID.uuidString) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw PasswordStoreError.keychain(status)
