@@ -224,6 +224,12 @@ final class SSHPTYTransport {
             if transferDirection == .downloadFromRemote,
                Self.containsDownloadCompletionFrame(in: data) {
                 didSeeDownloadCompletionFrame = true
+                helperStdIn.fileHandleForWriting.write(data)
+                // 远端 `sz` 已发出结束帧后，本地 `rz` 应该尽快读到 EOF 并退出；
+                // 否则 helper 会继续占着传输态，导致终端虽然已收到文件却仍无法操作。
+                helperStdIn.fileHandleForWriting.closeFile()
+                self.helperStdIn = nil
+                return
             }
             helperStdIn.fileHandleForWriting.write(data)
             return
