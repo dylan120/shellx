@@ -33,6 +33,8 @@ final class SSHPTYTransport {
     private var lastWindowSize: (cols: Int, rows: Int)?
     private var debugTranscript = ""
     private let maxDebugTranscriptLength = 65536
+    private var currentUserCommandBuffer = ""
+    private var lastSubmittedUserCommand: String?
 
     // Swift 无法稳定直接导入 wait(2) 相关 C 宏，这里按 Darwin 的状态位规则自行解析。
     private static func waitStatus(_ status: Int32) -> Int32 {
@@ -115,8 +117,11 @@ final class SSHPTYTransport {
         self.waitSource = waitSource
     }
 
-    func send(_ data: Data) {
+    func send(_ data: Data, trackAsUserInput: Bool = true) {
         guard masterFD >= 0 else { return }
+        if trackAsUserInput {
+            recordUserInput(data)
+        }
         data.withUnsafeBytes { bytes in
             _ = write(masterFD, bytes.baseAddress, bytes.count)
         }
@@ -187,6 +192,8 @@ final class SSHPTYTransport {
         pendingTrigger = nil
         pendingData.removeAll(keepingCapacity: true)
         zmodemDetector.reset()
+        currentUserCommandBuffer = ""
+        lastSubmittedUserCommand = nil
         pendingPassword = nil
         authTranscript = ""
         didSendPassword = false
@@ -220,7 +227,7 @@ final class SSHPTYTransport {
             return
         }
 
-        if let trigger = zmodemDetector.consume(data) {
+        if let trigger = zmodemDetector.consume(data, preferredDirection: preferredZModemDirection()) {
             pendingTrigger = trigger
             pendingData = Self.sanitizedTransferSeed(from: data, trigger: trigger)
             DispatchQueue.main.async { [weak self] in
@@ -334,7 +341,7 @@ final class SSHPTYTransport {
             guard bytesRead > 0 else { return }
             if sink == .master {
                 let data = Data(buffer.prefix(bytesRead))
-                self.send(data)
+                self.send(data, trackAsUserInput: false)
             }
         }
         source.setCancelHandler {
@@ -357,6 +364,8 @@ final class SSHPTYTransport {
         pendingTrigger = nil
         pendingData.removeAll(keepingCapacity: true)
         zmodemDetector.reset()
+        currentUserCommandBuffer = ""
+        lastSubmittedUserCommand = nil
         pendingPassword = nil
         authTranscript = ""
         didSendPassword = false
@@ -413,7 +422,7 @@ final class SSHPTYTransport {
 
     private func sendPasswordIfNeeded() {
         guard let pendingPassword, !didSendPassword else { return }
-        send(Data((pendingPassword + "\n").utf8))
+        send(Data((pendingPassword + "\n").utf8), trackAsUserInput: false)
         didSendPassword = true
         self.pendingPassword = nil
     }
@@ -455,6 +464,48 @@ final class SSHPTYTransport {
         }
 
         return result
+    }
+
+    private func preferredZModemDirection() -> ZModemTransferDirection? {
+        guard let lastSubmittedUserCommand else {
+            return nil
+        }
+        let command = lastSubmittedUserCommand
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !command.isEmpty else { return nil }
+
+        if command == "rz" || command.hasPrefix("rz ") {
+            return .uploadToRemote
+        }
+        if command == "sz" || command.hasPrefix("sz ") {
+            return .downloadFromRemote
+        }
+        return nil
+    }
+
+    private func recordUserInput(_ data: Data) {
+        for byte in data {
+            switch byte {
+            case 0x08, 0x7F:
+                if !currentUserCommandBuffer.isEmpty {
+                    currentUserCommandBuffer.removeLast()
+                }
+            case 0x0D, 0x0A:
+                let submitted = currentUserCommandBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !submitted.isEmpty {
+                    lastSubmittedUserCommand = submitted
+                }
+                currentUserCommandBuffer.removeAll(keepingCapacity: true)
+            case 0x20...0x7E:
+                currentUserCommandBuffer.append(Character(UnicodeScalar(byte)))
+                if currentUserCommandBuffer.count > 512 {
+                    currentUserCommandBuffer = String(currentUserCommandBuffer.suffix(512))
+                }
+            default:
+                continue
+            }
+        }
     }
 
     static func sanitizedTransferSeed(from data: Data, trigger: ZModemTrigger) -> Data {

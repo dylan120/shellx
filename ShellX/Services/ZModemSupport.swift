@@ -44,15 +44,27 @@ struct ZModemTriggerDetector {
     private let maxBufferLength = 4096
     private let uploadPromptPattern = #"rz waiting to receive\.\*\*B01[0-9A-Fa-f]{8,}"#
     private let uploadHandshakePattern = #"\*\*B01[0-9A-Fa-f]{8,}"#
-    private let downloadPattern = #"\*\*B0{14,}[0-9A-Fa-f]*"#
+    private let genericHandshakePattern = #"\*\*B0[0-9A-Fa-f]{8,}"#
+    private let downloadPattern = #"\*\*B0[0-9A-Fa-f]{8,}"#
     private(set) var buffer = ""
 
-    mutating func consume(_ data: Data) -> ZModemTrigger? {
+    mutating func consume(_ data: Data, preferredDirection: ZModemTransferDirection? = nil) -> ZModemTrigger? {
         let chunk = Self.normalizedASCII(from: data)
         guard !chunk.isEmpty else { return nil }
         buffer.append(chunk)
         if buffer.count > maxBufferLength {
             buffer = String(buffer.suffix(maxBufferLength))
+        }
+
+        if let preferredDirection,
+           buffer.range(of: genericHandshakePattern, options: .regularExpression) != nil {
+            buffer.removeAll(keepingCapacity: true)
+            switch preferredDirection {
+            case .uploadToRemote:
+                return .uploadRequest
+            case .downloadFromRemote:
+                return .downloadRequest
+            }
         }
 
         // 终端回显经常会把 "rz waiting to receive." 文本切碎，只保留真实的 ZMODEM 起始帧。

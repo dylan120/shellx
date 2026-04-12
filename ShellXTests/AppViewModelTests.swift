@@ -256,6 +256,24 @@ final class AppViewModelTests: XCTestCase {
         XCTAssertEqual(trigger, .downloadRequest)
     }
 
+    func testZModemTriggerDetectorPrefersDownloadWhenLastCommandWasSz() {
+        var detector = ZModemTriggerDetector()
+        let data = Data("**B0100000063f694".utf8)
+
+        let trigger = detector.consume(data, preferredDirection: .downloadFromRemote)
+
+        XCTAssertEqual(trigger, .downloadRequest)
+    }
+
+    func testZModemTriggerDetectorPrefersUploadWhenLastCommandWasRz() {
+        var detector = ZModemTriggerDetector()
+        let data = Data("**B0100000023be50".utf8)
+
+        let trigger = detector.consume(data, preferredDirection: .uploadToRemote)
+
+        XCTAssertEqual(trigger, .uploadRequest)
+    }
+
     func testSanitizedTransferSeedDropsPromptBeforeDownloadHandshake() {
         let raw = Data("(base) dylan@dev:~$ sz file\r\n**B00000000000000".utf8)
 
