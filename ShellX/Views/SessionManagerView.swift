@@ -178,17 +178,25 @@ private struct TerminalTabWorkspaceView: View {
                 HStack(spacing: 6) {
                     ForEach(appModel.openTerminalSessions) { session in
                         let sessionModel = appModel.terminalSessionModel(for: session.id)
+                        let isActive = session.id == appModel.activeTerminalSessionID
                         HStack(spacing: 6) {
                             Image(systemName: "terminal")
                                 .font(.caption)
                             Text(session.name)
-                                .font(.caption)
+                                .font(.caption.weight(isActive ? .semibold : .regular))
                                 .lineLimit(1)
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
                         .contentShape(Rectangle())
                         .background(tabBackground(for: session.id), in: Capsule())
+                        .overlay {
+                            if isActive {
+                                Capsule()
+                                    .strokeBorder(Color.accentColor.opacity(0.35), lineWidth: 1)
+                            }
+                        }
+                        .foregroundStyle(isActive ? Color.white : Color.primary)
                         .onTapGesture {
                             appModel.activeTerminalSessionID = session.id
                             appModel.selectedSessionID = session.id
@@ -266,7 +274,10 @@ private struct TerminalTabWorkspaceView: View {
     }
 
     private func tabBackground(for sessionID: UUID) -> some ShapeStyle {
-        sessionID == appModel.activeTerminalSessionID ? AnyShapeStyle(.regularMaterial) : AnyShapeStyle(.clear)
+        if sessionID == appModel.activeTerminalSessionID {
+            return AnyShapeStyle(Color.accentColor)
+        }
+        return AnyShapeStyle(Color.clear)
     }
 }
 

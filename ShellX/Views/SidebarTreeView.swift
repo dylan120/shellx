@@ -59,6 +59,7 @@ private struct AllSessionsRow: View {
         .padding(.vertical, 4)
         .contentShape(Rectangle())
         .background(rowBackground(isSelected: appModel.selectedFolderID == nil))
+        .listRowInsets(EdgeInsets())
         .onTapGesture {
             appModel.selectedFolderID = nil
             appModel.syncSelectionToVisibleSessions()
@@ -66,8 +67,8 @@ private struct AllSessionsRow: View {
     }
 
     private func rowBackground(isSelected: Bool) -> some View {
-        RoundedRectangle(cornerRadius: 8)
-            .fill(isSelected ? Color.accentColor.opacity(0.15) : .clear)
+        Rectangle()
+            .fill(isSelected ? Color.accentColor.opacity(0.16) : .clear)
     }
 }
 
@@ -130,6 +131,7 @@ private struct FolderBranchView: View {
             .padding(.vertical, 4)
             .contentShape(Rectangle())
             .background(rowBackground(isSelected: appModel.selectedFolderID == node.folder.id))
+            .listRowInsets(EdgeInsets())
             .onTapGesture {
                 appModel.selectedFolderID = node.folder.id
                 appModel.syncSelectionToVisibleSessions()
@@ -154,8 +156,8 @@ private struct FolderBranchView: View {
     }
 
     private func rowBackground(isSelected: Bool) -> some View {
-        RoundedRectangle(cornerRadius: 8)
-            .fill(isSelected ? Color.accentColor.opacity(0.15) : .clear)
+        Rectangle()
+            .fill(isSelected ? Color.accentColor.opacity(0.16) : .clear)
     }
 }
 
@@ -180,6 +182,7 @@ private struct SessionTreeRow: View {
         .padding(.vertical, 4)
         .contentShape(Rectangle())
         .background(rowBackground(isSelected: appModel.selectedSessionID == session.id))
+        .listRowInsets(EdgeInsets())
         .onTapGesture {
             appModel.selectedSessionID = session.id
         }
@@ -205,7 +208,7 @@ private struct SessionTreeRow: View {
     }
 
     private func rowBackground(isSelected: Bool) -> some View {
-        RoundedRectangle(cornerRadius: 8)
-            .fill(isSelected ? Color.accentColor.opacity(0.15) : .clear)
+        Rectangle()
+            .fill(isSelected ? Color.accentColor.opacity(0.16) : .clear)
     }
 }
