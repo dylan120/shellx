@@ -249,14 +249,12 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
                 }
             case .prompt(let prompt):
                 await MainActor.run {
+                    self.pendingSession = session
+                    self.pendingConnectedHandler = onConnected
+                    self.hostKeyPrompt = prompt
                     if prompt.kind == .changed {
-                        let oldFingerprint = prompt.existingFingerprints.joined(separator: "\n")
-                        let newFingerprint = prompt.newFingerprints.joined(separator: "\n")
-                        self.connectionState = .failed("检测到主机指纹变更，请带外确认后再处理。\n旧指纹：\n\(oldFingerprint)\n新指纹：\n\(newFingerprint)")
+                        self.connectionState = .failed("检测到主机指纹变更，请先在弹窗中带外确认后再决定是否替换。")
                     } else {
-                        self.pendingSession = session
-                        self.pendingConnectedHandler = onConnected
-                        self.hostKeyPrompt = prompt
                         self.connectionState = .connecting
                     }
                 }
