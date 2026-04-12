@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct TerminalWindowContainerView: View {
     @EnvironmentObject private var appModel: AppViewModel
@@ -112,6 +113,52 @@ struct TerminalWindowView: View {
                     sessionModel.cancelPasswordPrompt()
                 }
             )
+        }
+        .fileImporter(
+            isPresented: Binding(
+                get: { sessionModel.zmodemSelectionRequest == .upload },
+                set: { isPresented in
+                    if !isPresented, sessionModel.zmodemSelectionRequest == .upload {
+                        sessionModel.handleUploadSelection(.failure(CocoaError(.userCancelled)))
+                    }
+                }
+            ),
+            allowedContentTypes: [.data],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                if let fileURL = urls.first {
+                    sessionModel.handleUploadSelection(.success(fileURL))
+                } else {
+                    sessionModel.handleUploadSelection(.failure(CocoaError(.fileNoSuchFile)))
+                }
+            case .failure(let error):
+                sessionModel.handleUploadSelection(.failure(error))
+            }
+        }
+        .fileImporter(
+            isPresented: Binding(
+                get: { sessionModel.zmodemSelectionRequest == .download },
+                set: { isPresented in
+                    if !isPresented, sessionModel.zmodemSelectionRequest == .download {
+                        sessionModel.handleDownloadSelection(.failure(CocoaError(.userCancelled)))
+                    }
+                }
+            ),
+            allowedContentTypes: [.folder],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                if let directoryURL = urls.first {
+                    sessionModel.handleDownloadSelection(.success(directoryURL))
+                } else {
+                    sessionModel.handleDownloadSelection(.failure(CocoaError(.fileNoSuchFile)))
+                }
+            case .failure(let error):
+                sessionModel.handleDownloadSelection(.failure(error))
+            }
         }
         .sheet(isPresented: $showingErrorDetails) {
             ErrorDetailSheet(message: sessionModel.lastExitMessage ?? failureMessage ?? "未知错误")

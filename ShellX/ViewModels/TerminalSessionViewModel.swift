@@ -31,6 +31,20 @@ struct SSHPasswordPrompt: Identifiable, Equatable {
     let message: String
 }
 
+enum ZModemSelectionRequest: Identifiable, Equatable {
+    case upload
+    case download
+
+    var id: String {
+        switch self {
+        case .upload:
+            return "upload"
+        case .download:
+            return "download"
+        }
+    }
+}
+
 @MainActor
 final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDelegate, SSHPTYTransportDelegate {
     @Published var connectionState: TerminalConnectionState = .idle
@@ -40,6 +54,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
     @Published var transferState: ZModemTransferState = .idle
     @Published var hostKeyPrompt: KnownHostPrompt?
     @Published var passwordPrompt: SSHPasswordPrompt?
+    @Published var zmodemSelectionRequest: ZModemSelectionRequest?
 
     private weak var terminalView: TerminalView?
     private let transport = SSHPTYTransport()
@@ -257,6 +272,32 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
         connectionState = .failed("已取消密码输入")
     }
 
+    func handleUploadSelection(_ result: Result<URL, Error>) {
+        switch result {
+        case .success(let fileURL):
+            transferState = .transferring(.uploadToRemote)
+            lastExitMessage = "已选择文件，正在上传到远端。"
+            transport.startUpload(from: fileURL)
+        case .failure:
+            transport.cancelTransfer(sendCancel: true)
+            transferState = .failed("已取消上传")
+        }
+        zmodemSelectionRequest = nil
+    }
+
+    func handleDownloadSelection(_ result: Result<URL, Error>) {
+        switch result {
+        case .success(let directoryURL):
+            transferState = .transferring(.downloadFromRemote)
+            lastExitMessage = "已选择接收目录，正在从远端下载。"
+            transport.startDownload(to: directoryURL)
+        case .failure:
+            transport.cancelTransfer(sendCancel: true)
+            transferState = .failed("已取消下载")
+        }
+        zmodemSelectionRequest = nil
+    }
+
     private func start(session: SSHSessionProfile, onConnected: @escaping (UUID) -> Void) {
         guard terminalView != nil else {
             pendingSession = session
@@ -410,37 +451,11 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
 
     private func handleUploadTrigger() {
         lastExitMessage = "已检测到 rz 上传请求，正在打开本地文件选择窗口。"
-        NSApp.activate(ignoringOtherApps: true)
-        let panel = NSOpenPanel()
-        panel.message = "选择要通过 lrzsz 上传到远端的文件"
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-
-        if panel.runModal() == .OK, let fileURL = panel.url {
-            transferState = .transferring(.uploadToRemote)
-            transport.startUpload(from: fileURL)
-        } else {
-            transport.cancelTransfer(sendCancel: true)
-            transferState = .failed("已取消上传")
-        }
+        zmodemSelectionRequest = .upload
     }
 
     private func handleDownloadTrigger() {
         lastExitMessage = "已检测到 sz 下载请求，正在打开保存目录选择窗口。"
-        NSApp.activate(ignoringOtherApps: true)
-        let panel = NSOpenPanel()
-        panel.message = "选择接收 lrzsz 下载文件的目录"
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-
-        if panel.runModal() == .OK, let directoryURL = panel.url {
-            transferState = .transferring(.downloadFromRemote)
-            transport.startDownload(to: directoryURL)
-        } else {
-            transport.cancelTransfer(sendCancel: true)
-            transferState = .failed("已取消下载")
-        }
+        zmodemSelectionRequest = .download
     }
 }
