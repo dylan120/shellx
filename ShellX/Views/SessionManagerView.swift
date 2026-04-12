@@ -62,8 +62,8 @@ struct SessionManagerView: View {
                 )
             } else {
                 TerminalTabWorkspaceView(
-                    onClose: { sessionID in
-                        appModel.closeTerminal(sessionID: sessionID)
+                    onClose: { tabID in
+                        appModel.closeTerminal(tabID: tabID)
                     }
                 )
             }
@@ -159,10 +159,7 @@ struct SessionManagerView: View {
     }
 
     private func openTerminal(for session: SSHSessionProfile) {
-        let result = appModel.openTerminal(sessionID: session.id)
-        if result == .activatedExisting {
-            appModel.errorMessage = "该会话已打开，已切换到现有标签。"
-        }
+        appModel.openTerminal(sessionID: session.id)
     }
 
     private func saveSessionSubmission(_ submission: SessionEditorSubmission) {
@@ -181,7 +178,7 @@ private struct TerminalTabWorkspaceView: View {
                 HStack(spacing: 6) {
                     ForEach(Array(appModel.openTerminalTabs.enumerated()), id: \.element.id) { index, tab in
                         let sessionModel = appModel.terminalSessionModel(for: tab.id)
-                        let isActive = tab.id == appModel.activeTerminalSessionID
+                        let isActive = tab.id == appModel.activeTerminalTabID
                         HStack(spacing: 6) {
                             if index > 0 {
                                 Rectangle()
@@ -209,61 +206,46 @@ private struct TerminalTabWorkspaceView: View {
                         }
                         .foregroundStyle(isActive ? Color.white : Color.primary)
                         .onTapGesture {
-                            appModel.activeTerminalSessionID = tab.id
-                            if case .ssh(let session) = tab.kind {
-                                appModel.selectedSessionID = session.id
-                            } else {
-                                appModel.selectedSessionID = nil
-                            }
+                            appModel.activateTerminal(tabID: tab.id)
                         }
                         .help("右击显示标签操作")
                         .contextMenu {
                             Button("切换到此标签") {
-                                appModel.activeTerminalSessionID = tab.id
-                                if case .ssh(let session) = tab.kind {
-                                    appModel.selectedSessionID = session.id
-                                } else {
-                                    appModel.selectedSessionID = nil
-                                }
+                                appModel.activateTerminal(tabID: tab.id)
                             }
                             Divider()
+                            Button(tabCopyMenuTitle(for: tab)) {
+                                appModel.duplicateTerminal(tabID: tab.id)
+                            }
                             Button("重连") {
-                                appModel.activeTerminalSessionID = tab.id
+                                appModel.activateTerminal(tabID: tab.id)
                                 switch tab.kind {
                                 case .local(let shellPath):
-                                    appModel.selectedSessionID = nil
                                     sessionModel.startLocalShell(shellPath: shellPath)
                                 case .ssh(let session):
-                                    appModel.selectedSessionID = session.id
                                     sessionModel.reconnect(session: session) { sessionID in
                                         appModel.markConnected(sessionID: sessionID)
                                     }
                                 }
                             }
                             Button("断开") {
-                                appModel.activeTerminalSessionID = tab.id
-                                if case .ssh(let session) = tab.kind {
-                                    appModel.selectedSessionID = session.id
-                                }
+                                appModel.activateTerminal(tabID: tab.id)
                                 sessionModel.terminate()
                             }
                             if case .ssh(let session) = tab.kind {
                                 Divider()
                                 Button("SFTP 上传文件/文件夹") {
-                                    appModel.activeTerminalSessionID = session.id
-                                    appModel.selectedSessionID = session.id
+                                    appModel.activateTerminal(tabID: tab.id)
                                     sessionModel.requestSFTPUpload()
                                 }
                                 .disabled(sessionModel.connectionState != .connected)
                                 Button("SFTP 下载文件") {
-                                    appModel.activeTerminalSessionID = session.id
-                                    appModel.selectedSessionID = session.id
+                                    appModel.activateTerminal(tabID: tab.id)
                                     sessionModel.requestSFTPDownloadFile()
                                 }
                                 .disabled(sessionModel.connectionState != .connected)
                                 Button("SFTP 下载文件夹") {
-                                    appModel.activeTerminalSessionID = session.id
-                                    appModel.selectedSessionID = session.id
+                                    appModel.activateTerminal(tabID: tab.id)
                                     sessionModel.requestSFTPDownloadDirectory()
                                 }
                                 .disabled(sessionModel.connectionState != .connected)
@@ -307,18 +289,18 @@ private struct TerminalTabWorkspaceView: View {
                                 session: nil,
                                 localShellPath: shellPath
                             )
-                            .opacity(tab.id == appModel.activeTerminalSessionID ? 1 : 0)
-                            .allowsHitTesting(tab.id == appModel.activeTerminalSessionID)
-                            .accessibilityHidden(tab.id != appModel.activeTerminalSessionID)
+                            .opacity(tab.id == appModel.activeTerminalTabID ? 1 : 0)
+                            .allowsHitTesting(tab.id == appModel.activeTerminalTabID)
+                            .accessibilityHidden(tab.id != appModel.activeTerminalTabID)
                         case .ssh(let session):
                             TerminalWindowView(
-                                sessionModel: appModel.terminalSessionModel(for: session.id),
+                                sessionModel: appModel.terminalSessionModel(for: tab.id),
                                 session: session,
                                 localShellPath: nil
                             )
-                            .opacity(session.id == appModel.activeTerminalSessionID ? 1 : 0)
-                            .allowsHitTesting(session.id == appModel.activeTerminalSessionID)
-                            .accessibilityHidden(session.id != appModel.activeTerminalSessionID)
+                            .opacity(tab.id == appModel.activeTerminalTabID ? 1 : 0)
+                            .allowsHitTesting(tab.id == appModel.activeTerminalTabID)
+                            .accessibilityHidden(tab.id != appModel.activeTerminalTabID)
                         }
                     }
                 }
@@ -333,10 +315,19 @@ private struct TerminalTabWorkspaceView: View {
     }
 
     private func tabBackground(for sessionID: UUID) -> some ShapeStyle {
-        if sessionID == appModel.activeTerminalSessionID {
+        if sessionID == appModel.activeTerminalTabID {
             return AnyShapeStyle(Color.accentColor)
         }
         return AnyShapeStyle(Color.clear)
+    }
+
+    private func tabCopyMenuTitle(for tab: TerminalTabItem) -> String {
+        switch tab.kind {
+        case .local:
+            return "复制终端到新标签"
+        case .ssh:
+            return "复制会话到新标签"
+        }
     }
 }
 

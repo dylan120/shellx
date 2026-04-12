@@ -12,9 +12,14 @@ struct TerminalTabItem: Identifiable, Equatable {
     let kind: Kind
 }
 
-enum OpenTerminalResult: Equatable {
-    case opened
-    case activatedExisting
+private struct TerminalTabState: Identifiable, Equatable {
+    enum Kind: Equatable {
+        case local(shellPath: String)
+        case ssh(sessionID: UUID)
+    }
+
+    let id: UUID
+    let kind: Kind
 }
 
 @MainActor
@@ -26,8 +31,8 @@ final class AppViewModel: ObservableObject {
     @Published var sessions: [SSHSessionProfile] = []
     @Published var selectedFolderID: UUID?
     @Published var selectedSessionID: UUID?
-    @Published var openTerminalSessionIDs: [UUID] = []
-    @Published var activeTerminalSessionID: UUID?
+    @Published private var terminalTabs: [TerminalTabState] = []
+    @Published var activeTerminalTabID: UUID?
     @Published var searchText = ""
     @Published var expandedFolderIDs: Set<UUID> = []
     @Published var errorMessage: String?
@@ -57,7 +62,7 @@ final class AppViewModel: ObservableObject {
             errorMessage = "读取会话配置失败：\(error.localizedDescription)"
         }
 
-        if openTerminalSessionIDs.isEmpty {
+        if terminalTabs.isEmpty {
             openLocalTerminal()
         }
     }
@@ -96,27 +101,29 @@ final class AppViewModel: ObservableObject {
     }
 
     var openTerminalSessions: [SSHSessionProfile] {
-        openTerminalSessionIDs.compactMap { sessionID in
-            sessions.first(where: { $0.id == sessionID })
+        terminalTabs.compactMap { tab in
+            guard case .ssh(let sessionID) = tab.kind else { return nil }
+            return sessions.first(where: { $0.id == sessionID })
         }
     }
 
     var openTerminalTabs: [TerminalTabItem] {
-        openTerminalSessionIDs.compactMap { sessionID in
-            if sessionID == Self.localTerminalID {
+        terminalTabs.compactMap { tab in
+            switch tab.kind {
+            case .local(let shellPath):
                 return TerminalTabItem(
-                    id: sessionID,
+                    id: tab.id,
                     title: "本机终端",
-                    kind: .local(shellPath: Self.defaultLocalShellPath)
+                    kind: .local(shellPath: shellPath)
+                )
+            case .ssh(let sessionID):
+                guard let session = sessions.first(where: { $0.id == sessionID }) else { return nil }
+                return TerminalTabItem(
+                    id: tab.id,
+                    title: session.name,
+                    kind: .ssh(session)
                 )
             }
-
-            guard let session = sessions.first(where: { $0.id == sessionID }) else { return nil }
-            return TerminalTabItem(
-                id: sessionID,
-                title: session.name,
-                kind: .ssh(session)
-            )
         }
     }
 
@@ -266,7 +273,7 @@ final class AppViewModel: ObservableObject {
 
     func deleteSession(_ session: SSHSessionProfile) {
         sessions.removeAll { $0.id == session.id }
-        closeTerminal(sessionID: session.id)
+        closeTerminals(forSessionID: session.id)
         do {
             try passwordStore.deletePassword(for: session.id)
         } catch {
@@ -287,36 +294,88 @@ final class AppViewModel: ObservableObject {
         errorMessage = nil
     }
 
-    func openTerminal(sessionID: UUID) -> OpenTerminalResult {
-        let didAlreadyOpen = openTerminalSessionIDs.contains(sessionID)
-        if !didAlreadyOpen {
-            openTerminalSessionIDs.append(sessionID)
-        }
-        activeTerminalSessionID = sessionID
+    func openTerminal(sessionID: UUID) {
+        let tabID = UUID()
+        terminalTabs.append(
+            TerminalTabState(
+                id: tabID,
+                kind: .ssh(sessionID: sessionID)
+            )
+        )
+        activeTerminalTabID = tabID
         selectedSessionID = sessionID
-        return didAlreadyOpen ? .activatedExisting : .opened
+    }
+
+    func duplicateTerminal(tabID: UUID) {
+        guard let tab = terminalTabs.first(where: { $0.id == tabID }) else { return }
+        switch tab.kind {
+        case .local(let shellPath):
+            let duplicatedTabID = UUID()
+            terminalTabs.append(
+                TerminalTabState(
+                    id: duplicatedTabID,
+                    kind: .local(shellPath: shellPath)
+                )
+            )
+            activeTerminalTabID = duplicatedTabID
+            selectedSessionID = nil
+        case .ssh(let sessionID):
+            openTerminal(sessionID: sessionID)
+        }
     }
 
     func openLocalTerminal() {
-        if !openTerminalSessionIDs.contains(Self.localTerminalID) {
-            openTerminalSessionIDs.append(Self.localTerminalID)
+        if !terminalTabs.contains(where: { tab in
+            if case .local = tab.kind {
+                return true
+            }
+            return false
+        }) {
+            terminalTabs.append(
+                TerminalTabState(
+                    id: Self.localTerminalID,
+                    kind: .local(shellPath: Self.defaultLocalShellPath)
+                )
+            )
         }
-        activeTerminalSessionID = Self.localTerminalID
+        activeTerminalTabID = Self.localTerminalID
         selectedSessionID = nil
     }
 
-    func closeTerminal(sessionID: UUID) {
-        if let sessionModel = terminalSessionModels.removeValue(forKey: sessionID) {
+    func closeTerminal(tabID: UUID) {
+        if let sessionModel = terminalSessionModels.removeValue(forKey: tabID) {
             sessionModel.terminate()
         }
-        openTerminalSessionIDs.removeAll { $0 == sessionID }
-        guard activeTerminalSessionID == sessionID else { return }
+        terminalTabs.removeAll { $0.id == tabID }
+        guard activeTerminalTabID == tabID else { return }
 
-        activeTerminalSessionID = openTerminalSessionIDs.last
-        if let activeTerminalSessionID, activeTerminalSessionID != Self.localTerminalID {
-            selectedSessionID = activeTerminalSessionID
-        } else {
-            selectedSessionID = nil
+        activeTerminalTabID = terminalTabs.last?.id
+        syncSelectionToActiveTerminalTab()
+    }
+
+    func activateTerminal(tabID: UUID) {
+        guard terminalTabs.contains(where: { $0.id == tabID }) else { return }
+        activeTerminalTabID = tabID
+        syncSelectionToActiveTerminalTab()
+    }
+
+    func sourceSessionID(for tabID: UUID) -> UUID? {
+        guard let tab = terminalTabs.first(where: { $0.id == tabID }) else { return nil }
+        if case .ssh(let sessionID) = tab.kind {
+            return sessionID
+        }
+        return nil
+    }
+
+    private func closeTerminals(forSessionID sessionID: UUID) {
+        let tabIDs = terminalTabs.compactMap { tab -> UUID? in
+            if case .ssh(let tabSessionID) = tab.kind, tabSessionID == sessionID {
+                return tab.id
+            }
+            return nil
+        }
+        for tabID in tabIDs {
+            closeTerminal(tabID: tabID)
         }
     }
 
@@ -328,15 +387,30 @@ final class AppViewModel: ObservableObject {
         selectedSessionID = filteredSessions.first?.id
     }
 
-    func terminalSessionModel(for sessionID: UUID) -> TerminalSessionViewModel {
-        if let existingModel = terminalSessionModels[sessionID] {
+    func terminalSessionModel(for tabID: UUID) -> TerminalSessionViewModel {
+        if let existingModel = terminalSessionModels[tabID] {
             return existingModel
         }
-        // 终端会话与编辑/保存共用同一个密码存储实例，避免账号密码模式在同一进程内
-        // 因为“保存时写入 Keychain”和“连接时读取 Keychain”分属不同 store 而重复弹授权框。
+        // 标签实例与会话配置解耦后，同一 SSH 会话可以同时打开多个独立终端标签。
+        // 因此这里必须按标签实例 ID 缓存终端模型，不能再按会话 ID 复用同一个 PTY。
         let model = TerminalSessionViewModel(passwordStore: passwordStore)
-        terminalSessionModels[sessionID] = model
+        terminalSessionModels[tabID] = model
         return model
+    }
+
+    private func syncSelectionToActiveTerminalTab() {
+        guard let activeTerminalTabID,
+              let tab = terminalTabs.first(where: { $0.id == activeTerminalTabID }) else {
+            selectedSessionID = nil
+            return
+        }
+
+        switch tab.kind {
+        case .local:
+            selectedSessionID = nil
+        case .ssh(let sessionID):
+            selectedSessionID = sessionID
+        }
     }
 
     private func buildNodes(parentID: UUID?) -> [SessionFolderNode] {
