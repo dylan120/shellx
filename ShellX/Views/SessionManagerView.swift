@@ -197,7 +197,7 @@ private struct TerminalTabWorkspaceView: View {
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
                         .contentShape(Rectangle())
-                        .background(tabBackground(for: session.id), in: Capsule())
+                        .background(tabBackground(for: tab.id), in: Capsule())
                         .overlay {
                             if isActive {
                                 Capsule()
