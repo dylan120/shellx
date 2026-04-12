@@ -27,6 +27,7 @@ final class SSHPTYTransport {
     private var pendingTrigger: ZModemTrigger?
     private var pendingData = Data()
     private var transferDirection: ZModemTransferDirection?
+    private var didSeeDownloadCompletionFrame = false
     private var pendingPassword: String?
     private var authTranscript = ""
     private var didSendPassword = false
@@ -96,6 +97,7 @@ final class SSHPTYTransport {
         pendingTrigger = nil
         pendingData.removeAll(keepingCapacity: true)
         transferDirection = nil
+        didSeeDownloadCompletionFrame = false
         lastWindowSize = nil
         debugTranscript.removeAll(keepingCapacity: true)
 
@@ -189,6 +191,7 @@ final class SSHPTYTransport {
         }
         helperProcess = nil
         transferDirection = nil
+        didSeeDownloadCompletionFrame = false
         pendingTrigger = nil
         pendingData.removeAll(keepingCapacity: true)
         zmodemDetector.reset()
@@ -218,6 +221,10 @@ final class SSHPTYTransport {
         }
 
         if let helperStdIn {
+            if transferDirection == .downloadFromRemote,
+               Self.containsDownloadCompletionFrame(in: data) {
+                didSeeDownloadCompletionFrame = true
+            }
             helperStdIn.fileHandleForWriting.write(data)
             return
         }
@@ -300,6 +307,7 @@ final class SSHPTYTransport {
         helperStdOut = stdoutPipe
         helperStdErr = stderrPipe
         transferDirection = direction
+        didSeeDownloadCompletionFrame = false
 
         helperOutputHandler = makeHelperReadSource(
             fileDescriptor: stdoutPipe.fileHandleForReading.fileDescriptor,
@@ -340,6 +348,9 @@ final class SSHPTYTransport {
             let bytesRead = read(fileDescriptor, &buffer, buffer.count)
             guard bytesRead > 0 else { return }
             if sink == .master {
+                if self.transferDirection == .downloadFromRemote, self.didSeeDownloadCompletionFrame {
+                    return
+                }
                 let data = Data(buffer.prefix(bytesRead))
                 self.send(data, trackAsUserInput: false)
             }
@@ -364,6 +375,7 @@ final class SSHPTYTransport {
         pendingTrigger = nil
         pendingData.removeAll(keepingCapacity: true)
         zmodemDetector.reset()
+        didSeeDownloadCompletionFrame = false
         currentUserCommandBuffer = ""
         lastSubmittedUserCommand = nil
         pendingPassword = nil
@@ -522,5 +534,25 @@ final class SSHPTYTransport {
             return data
         }
         return Data(bytes[startIndex...])
+    }
+
+    // `sz` 结束时远端会回送 `**B08...` 尾帧；此后本地 `rz` 再输出的少量协议字节
+    // 很容易落回远端 shell，表现为 `**080...：未找到命令`。这里单独识别尾帧，
+    // 在收尾阶段停止继续把 helper 的 stdout 回灌到远端。
+    static func containsDownloadCompletionFrame(in data: Data) -> Bool {
+        let normalized = String(
+            decoding: data.filter { byte in
+                switch byte {
+                case 0x20...0x7E:
+                    return true
+                case 0x0A, 0x0D, 0x09:
+                    return true
+                default:
+                    return false
+                }
+            },
+            as: UTF8.self
+        )
+        return normalized.contains("**B08")
     }
 }

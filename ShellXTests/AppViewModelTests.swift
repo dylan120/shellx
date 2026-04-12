@@ -290,6 +290,18 @@ final class AppViewModelTests: XCTestCase {
         XCTAssertEqual(String(decoding: sanitized, as: UTF8.self), "**B0100000023be50")
     }
 
+    func testDownloadCompletionFrameDetectionRecognizesB08Trailer() {
+        let trailer = Data([0x2A, 0x2A, 0x18] + Array("B0800000000022d".utf8) + [0x0D])
+
+        XCTAssertTrue(SSHPTYTransport.containsDownloadCompletionFrame(in: trailer))
+    }
+
+    func testDownloadCompletionFrameDetectionIgnoresRegularPayload() {
+        let payload = Data("hi".utf8)
+
+        XCTAssertFalse(SSHPTYTransport.containsDownloadCompletionFrame(in: payload))
+    }
+
     func testZModemHelperLocatorReturnsNilForUnknownCommand() {
         XCTAssertNil(ZModemHelperLocator.path(named: "shellx-not-a-real-command"))
     }
