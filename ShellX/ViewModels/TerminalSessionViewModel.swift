@@ -83,7 +83,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
     static func sshArguments(
         for session: SSHSessionProfile,
         userKnownHostsPath: String,
-        strictHostKeyChecking: String = "yes"
+        strictHostKeyChecking: String = "no"
     ) -> [String] {
         var args = [
             "-tt",
@@ -367,7 +367,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
                 arguments: Self.sshArguments(
                     for: session,
                     userKnownHostsPath: knownHostsPath,
-                    strictHostKeyChecking: strictHostKeyCheckingOverride ?? "yes"
+                    strictHostKeyChecking: strictHostKeyCheckingOverride ?? "no"
                 ),
                 password: password
             )
