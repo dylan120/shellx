@@ -63,6 +63,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
     private var startedSessionID: UUID?
     private var pendingSession: SSHSessionProfile?
     private var pendingConnectedHandler: ((UUID) -> Void)?
+    private var transferBannerResetTask: Task<Void, Never>?
 
     override init() {
         super.init()
@@ -88,6 +89,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
 
     func terminate() {
         transport.terminate()
+        cancelTransferBannerReset()
         if case .connected = connectionState {
             connectionState = .disconnected
         }
@@ -112,9 +114,10 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
             let privateKeyPath = session.privateKeyPath.trimmingCharacters(in: .whitespacesAndNewlines)
             if !privateKeyPath.isEmpty {
                 args.append(contentsOf: ["-i", (privateKeyPath as NSString).expandingTildeInPath])
+                args.append(contentsOf: ["-o", "IdentitiesOnly=yes"])
             }
             if session.useKeychainForPrivateKey {
-                args.append(contentsOf: ["-o", "UseKeychain=yes", "-o", "AddKeysToAgent=yes"])
+                args.append(contentsOf: ["-o", "UseKeychain=yes"])
             }
         } else if session.authMethod == .password {
             args.append(contentsOf: [
@@ -177,6 +180,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
     func transportDidTerminate(exitCode: Int32?) {
         startedSessionID = nil
         workingDirectory = nil
+        cancelTransferBannerReset()
         transferState = .idle
         hostKeyPrompt = nil
 
@@ -210,8 +214,12 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
     func transportDidFail(_ message: String) {
         if message.contains("完成") {
             transferState = .completed(message)
+            scheduleTransferBannerReset(message: message)
         } else {
             transferState = .failed(message)
+            if message.contains("传输") || message.contains("上传") || message.contains("下载") || message.contains("已取消") {
+                scheduleTransferBannerReset(message: message)
+            }
         }
         lastExitMessage = message
     }
@@ -275,12 +283,15 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
     func handleUploadSelection(_ result: Result<URL, Error>) {
         switch result {
         case .success(let fileURL):
+            cancelTransferBannerReset()
             transferState = .transferring(.uploadToRemote)
             lastExitMessage = "已选择文件，正在上传到远端。"
             transport.startUpload(from: fileURL)
         case .failure:
             transport.cancelTransfer(sendCancel: true)
             transferState = .failed("已取消上传")
+            lastExitMessage = "已取消上传"
+            scheduleTransferBannerReset(message: "已取消上传")
         }
         zmodemSelectionRequest = nil
     }
@@ -288,12 +299,15 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
     func handleDownloadSelection(_ result: Result<URL, Error>) {
         switch result {
         case .success(let directoryURL):
+            cancelTransferBannerReset()
             transferState = .transferring(.downloadFromRemote)
             lastExitMessage = "已选择接收目录，正在从远端下载。"
             transport.startDownload(to: directoryURL)
         case .failure:
             transport.cancelTransfer(sendCancel: true)
             transferState = .failed("已取消下载")
+            lastExitMessage = "已取消下载"
+            scheduleTransferBannerReset(message: "已取消下载")
         }
         zmodemSelectionRequest = nil
     }
@@ -310,6 +324,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
         terminalTitle = session.name
         workingDirectory = nil
         lastExitMessage = nil
+        cancelTransferBannerReset()
         transferState = .idle
         connectionState = .connecting
         pendingSession = nil
@@ -450,12 +465,36 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
     }
 
     private func handleUploadTrigger() {
+        cancelTransferBannerReset()
         lastExitMessage = "已检测到 rz 上传请求，正在打开本地文件选择窗口。"
         zmodemSelectionRequest = .upload
     }
 
     private func handleDownloadTrigger() {
+        cancelTransferBannerReset()
         lastExitMessage = "已检测到 sz 下载请求，正在打开保存目录选择窗口。"
         zmodemSelectionRequest = .download
+    }
+
+    private func scheduleTransferBannerReset(message: String, delaySeconds: Double = 3) {
+        cancelTransferBannerReset()
+        transferBannerResetTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(delaySeconds))
+            guard let self else { return }
+            if self.lastExitMessage == message {
+                self.lastExitMessage = nil
+            }
+            if case .completed(let currentMessage) = self.transferState, currentMessage == message {
+                self.transferState = .idle
+            } else if case .failed(let currentMessage) = self.transferState, currentMessage == message {
+                self.transferState = .idle
+            }
+            self.transferBannerResetTask = nil
+        }
+    }
+
+    private func cancelTransferBannerReset() {
+        transferBannerResetTask?.cancel()
+        transferBannerResetTask = nil
     }
 }

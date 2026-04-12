@@ -29,6 +29,7 @@ final class SSHPTYTransport {
     private var pendingPassword: String?
     private var authTranscript = ""
     private var didSendPassword = false
+    private var lastWindowSize: (cols: Int, rows: Int)?
 
     // Swift 无法稳定直接导入 wait(2) 相关 C 宏，这里按 Darwin 的状态位规则自行解析。
     private static func waitStatus(_ status: Int32) -> Int32 {
@@ -90,6 +91,7 @@ final class SSHPTYTransport {
         pendingTrigger = nil
         pendingData.removeAll(keepingCapacity: true)
         transferDirection = nil
+        lastWindowSize = nil
 
         let readSource = DispatchSource.makeReadSource(fileDescriptor: fd, queue: ioQueue)
         readSource.setEventHandler { [weak self] in
@@ -118,8 +120,13 @@ final class SSHPTYTransport {
 
     func resize(cols: Int, rows: Int) {
         guard masterFD >= 0 else { return }
+        guard cols > 0, rows > 0 else { return }
+        if let lastWindowSize, lastWindowSize.cols == cols, lastWindowSize.rows == rows {
+            return
+        }
         var windowSize = winsize(ws_row: UInt16(rows), ws_col: UInt16(cols), ws_xpixel: 0, ws_ypixel: 0)
         ioctl(masterFD, TIOCSWINSZ, &windowSize)
+        lastWindowSize = (cols, rows)
     }
 
     func terminate() {
@@ -179,6 +186,7 @@ final class SSHPTYTransport {
         pendingPassword = nil
         authTranscript = ""
         didSendPassword = false
+        lastWindowSize = nil
     }
 
     private func handleRead() {

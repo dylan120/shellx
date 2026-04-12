@@ -124,9 +124,9 @@ final class AppViewModelTests: XCTestCase {
 
         XCTAssertEqual(args.prefix(3), ["-tt", "-p", "2222"])
         XCTAssertTrue(args.contains("UserKnownHostsFile=/tmp/shellx-known_hosts"))
-        XCTAssertTrue(args.contains("StrictHostKeyChecking=yes"))
+        XCTAssertTrue(args.contains("StrictHostKeyChecking=no"))
         XCTAssertTrue(args.contains("UseKeychain=yes"))
-        XCTAssertTrue(args.contains("AddKeysToAgent=yes"))
+        XCTAssertTrue(args.contains("IdentitiesOnly=yes"))
         XCTAssertTrue(args.contains("-i"))
         XCTAssertTrue(args.contains("ops@example.com"))
         XCTAssertEqual(args.last, "cd /srv/app")
