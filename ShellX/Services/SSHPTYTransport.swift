@@ -6,6 +6,7 @@ protocol SSHPTYTransportDelegate: AnyObject {
     func transportDidTerminate(exitCode: Int32?)
     func transportDidDetectZModem(_ trigger: ZModemTrigger)
     func transportDidFail(_ message: String)
+    func transportDidUpdateDebugSnapshot(_ snapshot: String)
 }
 
 final class SSHPTYTransport {
@@ -30,6 +31,8 @@ final class SSHPTYTransport {
     private var authTranscript = ""
     private var didSendPassword = false
     private var lastWindowSize: (cols: Int, rows: Int)?
+    private var debugTranscript = ""
+    private let maxDebugTranscriptLength = 4096
 
     // Swift 无法稳定直接导入 wait(2) 相关 C 宏，这里按 Darwin 的状态位规则自行解析。
     private static func waitStatus(_ status: Int32) -> Int32 {
@@ -92,6 +95,7 @@ final class SSHPTYTransport {
         pendingData.removeAll(keepingCapacity: true)
         transferDirection = nil
         lastWindowSize = nil
+        debugTranscript.removeAll(keepingCapacity: true)
 
         let readSource = DispatchSource.makeReadSource(fileDescriptor: fd, queue: ioQueue)
         readSource.setEventHandler { [weak self] in
@@ -187,6 +191,7 @@ final class SSHPTYTransport {
         authTranscript = ""
         didSendPassword = false
         lastWindowSize = nil
+        debugTranscript.removeAll(keepingCapacity: true)
     }
 
     private func handleRead() {
@@ -200,6 +205,7 @@ final class SSHPTYTransport {
         }
 
         let data = Data(buffer.prefix(bytesRead))
+        updateDebugTranscript(with: data)
         if shouldAutoFillPassword(from: data) {
             sendPasswordIfNeeded()
         }
@@ -410,5 +416,44 @@ final class SSHPTYTransport {
         send(Data((pendingPassword + "\n").utf8))
         didSendPassword = true
         self.pendingPassword = nil
+    }
+
+    private func updateDebugTranscript(with data: Data) {
+        let normalized = Self.debugString(from: data)
+        guard !normalized.isEmpty else { return }
+
+        debugTranscript.append(normalized)
+        if debugTranscript.count > maxDebugTranscriptLength {
+            debugTranscript = String(debugTranscript.suffix(maxDebugTranscriptLength))
+        }
+
+        let snapshot = debugTranscript
+        DispatchQueue.main.async { [weak self] in
+            self?.delegate?.transportDidUpdateDebugSnapshot(snapshot)
+        }
+    }
+
+    private static func debugString(from data: Data) -> String {
+        var result = ""
+        result.reserveCapacity(data.count * 2)
+
+        for byte in data {
+            switch byte {
+            case 0x1B:
+                result.append("<ESC>")
+            case 0x0D:
+                result.append("<CR>\n")
+            case 0x0A:
+                result.append("<LF>\n")
+            case 0x09:
+                result.append("<TAB>")
+            case 0x20...0x7E:
+                result.append(Character(UnicodeScalar(byte)))
+            default:
+                result.append(String(format: "<0x%02X>", byte))
+            }
+        }
+
+        return result
     }
 }

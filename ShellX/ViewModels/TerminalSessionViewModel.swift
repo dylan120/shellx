@@ -55,6 +55,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
     @Published var hostKeyPrompt: KnownHostPrompt?
     @Published var passwordPrompt: SSHPasswordPrompt?
     @Published var zmodemSelectionRequest: ZModemSelectionRequest?
+    @Published var terminalDebugSnapshot = ""
 
     private weak var terminalView: TerminalView?
     private let transport = SSHPTYTransport()
@@ -222,6 +223,10 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
             }
         }
         lastExitMessage = message
+    }
+
+    func transportDidUpdateDebugSnapshot(_ snapshot: String) {
+        terminalDebugSnapshot = snapshot
     }
 
     func trustCurrentHostAndContinue() {

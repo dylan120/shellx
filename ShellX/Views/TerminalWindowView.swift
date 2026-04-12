@@ -71,6 +71,11 @@ struct TerminalWindowView: View {
                 Button("断开") {
                     sessionModel.terminate()
                 }
+                Button("复制调试") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(sessionModel.terminalDebugSnapshot, forType: .string)
+                }
+                .disabled(sessionModel.terminalDebugSnapshot.isEmpty)
             }
             .padding()
             .background(.thinMaterial)
