@@ -1,0 +1,465 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		100000000000000000000011 /* ShellXApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000001 /* ShellXApp.swift */; };
+		100000000000000000000012 /* SessionModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000002 /* SessionModels.swift */; };
+		100000000000000000000013 /* AppStorageRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000003 /* AppStorageRepository.swift */; };
+		100000000000000000000014 /* AppViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000004 /* AppViewModel.swift */; };
+		100000000000000000000016 /* SidebarTreeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000006 /* SidebarTreeView.swift */; };
+		100000000000000000000017 /* SessionEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000007 /* SessionEditorSheet.swift */; };
+		100000000000000000000018 /* SessionManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000008 /* SessionManagerView.swift */; };
+		100000000000000000000019 /* TerminalWindowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000009 /* TerminalWindowView.swift */; };
+		100000000000000000000021 /* AppViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000000A /* AppViewModelTests.swift */; };
+		100000000000000000000022 /* TerminalSessionViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000000B /* TerminalSessionViewModel.swift */; };
+		100000000000000000000023 /* SwiftTermTerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000000C /* SwiftTermTerminalView.swift */; };
+		100000000000000000000024 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 1000000000000000000000B1 /* SwiftTerm */; };
+		100000000000000000000025 /* SSHPTYTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000000D /* SSHPTYTransport.swift */; };
+		100000000000000000000026 /* ZModemSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000000E /* ZModemSupport.swift */; };
+		100000000000000000000027 /* KnownHostsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000000F /* KnownHostsService.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		100000000000000000000031 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 100000000000000000000040 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 100000000000000000000050;
+			remoteInfo = ShellX;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		100000000000000000000001 /* ShellXApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellXApp.swift; sourceTree = "<group>"; };
+		100000000000000000000002 /* SessionModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionModels.swift; sourceTree = "<group>"; };
+		100000000000000000000003 /* AppStorageRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStorageRepository.swift; sourceTree = "<group>"; };
+		100000000000000000000004 /* AppViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppViewModel.swift; sourceTree = "<group>"; };
+		100000000000000000000006 /* SidebarTreeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarTreeView.swift; sourceTree = "<group>"; };
+		100000000000000000000007 /* SessionEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEditorSheet.swift; sourceTree = "<group>"; };
+		100000000000000000000008 /* SessionManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionManagerView.swift; sourceTree = "<group>"; };
+		100000000000000000000009 /* TerminalWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalWindowView.swift; sourceTree = "<group>"; };
+		10000000000000000000000A /* AppViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppViewModelTests.swift; sourceTree = "<group>"; };
+		10000000000000000000000B /* TerminalSessionViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSessionViewModel.swift; sourceTree = "<group>"; };
+		10000000000000000000000C /* SwiftTermTerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftTermTerminalView.swift; sourceTree = "<group>"; };
+		10000000000000000000000D /* SSHPTYTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHPTYTransport.swift; sourceTree = "<group>"; };
+		10000000000000000000000E /* ZModemSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZModemSupport.swift; sourceTree = "<group>"; };
+		10000000000000000000000F /* KnownHostsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KnownHostsService.swift; sourceTree = "<group>"; };
+		100000000000000000000060 /* ShellX.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = ShellX.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		100000000000000000000061 /* ShellXTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = ShellXTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		100000000000000000000070 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				100000000000000000000024 /* SwiftTerm in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		100000000000000000000071 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		100000000000000000000080 = {
+			isa = PBXGroup;
+			children = (
+				100000000000000000000081 /* ShellX */,
+				100000000000000000000082 /* ShellXTests */,
+				100000000000000000000083 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		100000000000000000000081 /* ShellX */ = {
+			isa = PBXGroup;
+			children = (
+				100000000000000000000084 /* App */,
+				100000000000000000000085 /* Models */,
+				100000000000000000000086 /* Storage */,
+				100000000000000000000087 /* ViewModels */,
+				100000000000000000000088 /* Services */,
+				100000000000000000000089 /* Views */,
+			);
+			path = ShellX;
+			sourceTree = "<group>";
+		};
+		100000000000000000000082 /* ShellXTests */ = {
+			isa = PBXGroup;
+			children = (
+				10000000000000000000000A /* AppViewModelTests.swift */,
+			);
+			path = ShellXTests;
+			sourceTree = "<group>";
+		};
+		100000000000000000000083 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				100000000000000000000060 /* ShellX.app */,
+				100000000000000000000061 /* ShellXTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		100000000000000000000084 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				100000000000000000000001 /* ShellXApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		100000000000000000000085 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				100000000000000000000002 /* SessionModels.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		100000000000000000000086 /* Storage */ = {
+			isa = PBXGroup;
+			children = (
+				100000000000000000000003 /* AppStorageRepository.swift */,
+			);
+			path = Storage;
+			sourceTree = "<group>";
+		};
+		100000000000000000000087 /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+				100000000000000000000004 /* AppViewModel.swift */,
+				10000000000000000000000B /* TerminalSessionViewModel.swift */,
+			);
+			path = ViewModels;
+			sourceTree = "<group>";
+		};
+		100000000000000000000088 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				10000000000000000000000F /* KnownHostsService.swift */,
+				10000000000000000000000D /* SSHPTYTransport.swift */,
+				10000000000000000000000E /* ZModemSupport.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		100000000000000000000089 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				100000000000000000000006 /* SidebarTreeView.swift */,
+				100000000000000000000007 /* SessionEditorSheet.swift */,
+				100000000000000000000008 /* SessionManagerView.swift */,
+				10000000000000000000000C /* SwiftTermTerminalView.swift */,
+				100000000000000000000009 /* TerminalWindowView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		100000000000000000000050 /* ShellX */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 100000000000000000000090 /* Build configuration list for PBXNativeTarget "ShellX" */;
+			buildPhases = (
+				100000000000000000000091 /* Sources */,
+				100000000000000000000070 /* Frameworks */,
+				100000000000000000000092 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ShellX;
+			packageProductDependencies = (
+				1000000000000000000000B1 /* SwiftTerm */,
+			);
+			productName = ShellX;
+			productReference = 100000000000000000000060 /* ShellX.app */;
+			productType = "com.apple.product-type.application";
+		};
+		100000000000000000000051 /* ShellXTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 100000000000000000000093 /* Build configuration list for PBXNativeTarget "ShellXTests" */;
+			buildPhases = (
+				100000000000000000000094 /* Sources */,
+				100000000000000000000071 /* Frameworks */,
+				100000000000000000000095 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				100000000000000000000096 /* PBXTargetDependency */,
+			);
+			name = ShellXTests;
+			productName = ShellXTests;
+			productReference = 100000000000000000000061 /* ShellXTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		100000000000000000000040 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					100000000000000000000050 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+					100000000000000000000051 = {
+						CreatedOnToolsVersion = 16.0;
+						TestTargetID = 100000000000000000000050;
+					};
+				};
+			};
+			buildConfigurationList = 100000000000000000000097 /* Build configuration list for PBXProject "ShellX" */;
+			compatibilityVersion = "Xcode 15.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+				zh-Hans,
+			);
+			mainGroup = 100000000000000000000080;
+			packageReferences = (
+				1000000000000000000000B0 /* XCRemoteSwiftPackageReference "SwiftTerm" */,
+			);
+			productRefGroup = 100000000000000000000083 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				100000000000000000000050 /* ShellX */,
+				100000000000000000000051 /* ShellXTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		100000000000000000000092 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		100000000000000000000095 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		100000000000000000000091 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				100000000000000000000011 /* ShellXApp.swift in Sources */,
+				100000000000000000000012 /* SessionModels.swift in Sources */,
+				100000000000000000000013 /* AppStorageRepository.swift in Sources */,
+				100000000000000000000014 /* AppViewModel.swift in Sources */,
+				100000000000000000000016 /* SidebarTreeView.swift in Sources */,
+				100000000000000000000017 /* SessionEditorSheet.swift in Sources */,
+				100000000000000000000018 /* SessionManagerView.swift in Sources */,
+				100000000000000000000027 /* KnownHostsService.swift in Sources */,
+				100000000000000000000025 /* SSHPTYTransport.swift in Sources */,
+				100000000000000000000026 /* ZModemSupport.swift in Sources */,
+				100000000000000000000022 /* TerminalSessionViewModel.swift in Sources */,
+				100000000000000000000023 /* SwiftTermTerminalView.swift in Sources */,
+				100000000000000000000019 /* TerminalWindowView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		100000000000000000000094 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				100000000000000000000021 /* AppViewModelTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		100000000000000000000096 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 100000000000000000000050 /* ShellX */;
+			targetProxy = 100000000000000000000031 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		1000000000000000000000B0 /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.13.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		1000000000000000000000B1 /* SwiftTerm */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 1000000000000000000000B0 /* XCRemoteSwiftPackageReference "SwiftTerm" */;
+			productName = SwiftTerm;
+		};
+/* End XCSwiftPackageProductDependency section */
+
+/* Begin XCBuildConfiguration section */
+		1000000000000000000000A0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = ShellX;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.ShellX;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		1000000000000000000000A1 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = ShellX;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.ShellX;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		1000000000000000000000A2 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.ShellXTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ShellX.app/Contents/MacOS/ShellX";
+			};
+			name = Debug;
+		};
+		1000000000000000000000A3 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.ShellXTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ShellX.app/Contents/MacOS/ShellX";
+			};
+			name = Release;
+		};
+		1000000000000000000000A4 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				MARKETING_VERSION = 1.0;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		1000000000000000000000A5 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				MARKETING_VERSION = 1.0;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		100000000000000000000090 /* Build configuration list for PBXNativeTarget "ShellX" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1000000000000000000000A0 /* Debug */,
+				1000000000000000000000A1 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		100000000000000000000093 /* Build configuration list for PBXNativeTarget "ShellXTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1000000000000000000000A2 /* Debug */,
+				1000000000000000000000A3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		100000000000000000000097 /* Build configuration list for PBXProject "ShellX" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1000000000000000000000A4 /* Debug */,
+				1000000000000000000000A5 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 100000000000000000000040 /* Project object */;
+}
