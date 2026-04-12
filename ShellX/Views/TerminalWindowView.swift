@@ -184,16 +184,9 @@ struct TerminalWindowView: View {
         }
 
         DispatchQueue.main.async {
-            // 避免在 SwiftUI 状态更新周期里同步挂 sheet，降低“看得见但不能点”的事件链异常概率。
-            if let window = NSApp.keyWindow ?? NSApp.mainWindow, window.attachedSheet == nil {
-                window.beginSheet(panel) { response in
-                    handleResult(response)
-                }
-            } else {
-                panel.begin { response in
-                    handleResult(response)
-                }
-            }
+            // 统一走独立模态窗口，避免主窗口标签页、SwiftUI 和 SwiftTerm 共同参与事件分发时
+            // 出现“面板显示出来但无法点击”的焦点链异常。
+            handleResult(panel.runModal())
         }
     }
 }
