@@ -16,12 +16,16 @@ final class SessionPasswordStore {
 
         let account = sessionID.uuidString
         // 账号密码模式希望“首次输入后，后续重启应用也能直接读取”。
-        // 这里统一删除旧条目后按现代 SecItem 配置重建，避免继续依赖
-        // 已废弃的 SecKeychain ACL API。
+        // 这里统一删除旧条目后按标准登录 Keychain 查询路径重建。
         let deleteStatus = SecItemDelete(baseQuery(for: account) as CFDictionary)
         guard deleteStatus == errSecSuccess || deleteStatus == errSecItemNotFound else {
             Self.recordDiagnostic("savePassword.delete.failure.\(deleteStatus)", sessionID: sessionID)
             throw PasswordStoreError.keychain(deleteStatus)
+        }
+        let legacyDeleteStatus = SecItemDelete(legacyBaseQuery(for: account) as CFDictionary)
+        guard legacyDeleteStatus == errSecSuccess || legacyDeleteStatus == errSecItemNotFound else {
+            Self.recordDiagnostic("savePassword.legacyDelete.failure.\(legacyDeleteStatus)", sessionID: sessionID)
+            throw PasswordStoreError.keychain(legacyDeleteStatus)
         }
 
         var addQuery = baseQuery(for: account)
@@ -51,7 +55,7 @@ final class SessionPasswordStore {
         let status = SecItemCopyMatching(query as CFDictionary, &item)
         if status == errSecItemNotFound {
             Self.recordDiagnostic("loadPassword.keychain.notFound", sessionID: sessionID)
-            return nil
+            return try migrateLegacyPasswordIfNeeded(for: sessionID)
         }
         guard status == errSecSuccess else {
             Self.recordDiagnostic("loadPassword.keychain.failure.\(status)", sessionID: sessionID)
@@ -112,10 +116,47 @@ final class SessionPasswordStore {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
-            // 使用现代 Data Protection Keychain，避免触发已废弃的 SecKeychain API。
+            // 这里刻意不再强制启用 Data Protection Keychain。
+            // ShellX 是桌面端 macOS 应用，目标行为是首次保存后，
+            // 后续重新打开应用仍能直接从标准登录 Keychain 读取，
+            // 而不是每次新进程首次访问都再次触发系统授权。
+        ]
+    }
+
+    private func legacyBaseQuery(for account: String) -> [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
             kSecUseDataProtectionKeychain as String: true,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
         ]
+    }
+
+    private func migrateLegacyPasswordIfNeeded(for sessionID: UUID) throws -> String? {
+        Self.recordDiagnostic("loadPassword.legacy.begin", sessionID: sessionID)
+        var query = legacyBaseQuery(for: sessionID.uuidString)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        if status == errSecItemNotFound {
+            Self.recordDiagnostic("loadPassword.legacy.notFound", sessionID: sessionID)
+            return nil
+        }
+        guard status == errSecSuccess else {
+            Self.recordDiagnostic("loadPassword.legacy.failure.\(status)", sessionID: sessionID)
+            throw PasswordStoreError.keychain(status)
+        }
+        guard let data = item as? Data, let password = String(data: data, encoding: .utf8) else {
+            Self.recordDiagnostic("loadPassword.legacy.invalidEncoding", sessionID: sessionID)
+            throw PasswordStoreError.invalidEncoding
+        }
+
+        try savePassword(password, for: sessionID)
+        Self.recordDiagnostic("loadPassword.legacy.migrated", sessionID: sessionID)
+        return password
     }
 }
 
