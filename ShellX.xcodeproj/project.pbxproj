@@ -24,6 +24,7 @@
 		100000000000000000000027 /* KnownHostsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000000F /* KnownHostsService.swift */; };
 		100000000000000000000028 /* SessionPasswordStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000010 /* SessionPasswordStore.swift */; };
 		100000000000000000000029 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000002A /* Assets.xcassets */; };
+		1000000000000000000000B2 /* SFTPTransferService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000000B3 /* SFTPTransferService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -55,6 +56,7 @@
 		10000000000000000000002A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		100000000000000000000060 /* ShellX.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = ShellX.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		100000000000000000000061 /* ShellXTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = ShellXTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		1000000000000000000000B3 /* SFTPTransferService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPTransferService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -153,6 +155,7 @@
 			isa = PBXGroup;
 			children = (
 				10000000000000000000000F /* KnownHostsService.swift */,
+				1000000000000000000000B3 /* SFTPTransferService.swift */,
 				100000000000000000000010 /* SessionPasswordStore.swift */,
 				10000000000000000000000D /* SSHPTYTransport.swift */,
 				10000000000000000000000E /* ZModemSupport.swift */,
@@ -287,6 +290,7 @@
 				100000000000000000000018 /* SessionManagerView.swift in Sources */,
 				100000000000000000000027 /* KnownHostsService.swift in Sources */,
 				100000000000000000000028 /* SessionPasswordStore.swift in Sources */,
+				1000000000000000000000B2 /* SFTPTransferService.swift in Sources */,
 				100000000000000000000025 /* SSHPTYTransport.swift in Sources */,
 				100000000000000000000026 /* ZModemSupport.swift in Sources */,
 				100000000000000000000022 /* TerminalSessionViewModel.swift in Sources */,
