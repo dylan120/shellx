@@ -72,6 +72,9 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
     }
 
     func attachTerminalView(_ terminalView: TerminalView) {
+        if self.terminalView === terminalView {
+            return
+        }
         self.terminalView = terminalView
         terminalView.terminalDelegate = self
         configureAppearance(for: terminalView)
@@ -470,10 +473,6 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
         terminalView.caretColor = .systemGreen
         terminalView.layer?.backgroundColor = terminalView.nativeBackgroundColor.cgColor
         terminalView.getTerminal().setCursorStyle(.steadyBlock)
-        // `top` 这类程序在主屏缓冲区里通过 ESC[H 回到左上角重绘。
-        // 保留 scrollback 时，SwiftTerm 当前版本在这个场景下容易表现成“历史追加”。
-        // 这里先关闭内置 scrollback，优先保证全屏/半全屏刷新的正确性。
-        terminalView.changeScrollback(nil)
         terminalView.autoresizingMask = [.width, .height]
     }
 
