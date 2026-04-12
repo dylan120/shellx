@@ -76,6 +76,10 @@ struct TerminalWindowView: View {
                     NSPasteboard.general.setString(sessionModel.terminalDebugSnapshot, forType: .string)
                 }
                 .disabled(sessionModel.terminalDebugSnapshot.isEmpty)
+                Button("清空调试") {
+                    sessionModel.clearTerminalDebugSnapshot()
+                }
+                .disabled(sessionModel.terminalDebugSnapshot.isEmpty)
             }
             .padding()
             .background(.thinMaterial)

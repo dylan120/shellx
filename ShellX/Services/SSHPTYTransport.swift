@@ -32,7 +32,7 @@ final class SSHPTYTransport {
     private var didSendPassword = false
     private var lastWindowSize: (cols: Int, rows: Int)?
     private var debugTranscript = ""
-    private let maxDebugTranscriptLength = 4096
+    private let maxDebugTranscriptLength = 65536
 
     // Swift 无法稳定直接导入 wait(2) 相关 C 宏，这里按 Darwin 的状态位规则自行解析。
     private static func waitStatus(_ status: Int32) -> Int32 {

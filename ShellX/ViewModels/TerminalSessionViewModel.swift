@@ -229,6 +229,10 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
         terminalDebugSnapshot = snapshot
     }
 
+    func clearTerminalDebugSnapshot() {
+        terminalDebugSnapshot = ""
+    }
+
     func trustCurrentHostAndContinue() {
         guard let hostKeyPrompt, let pendingSession, let pendingConnectedHandler else { return }
         Task {
