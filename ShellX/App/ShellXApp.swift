@@ -5,16 +5,13 @@ import SwiftUI
 struct ShellXApp: App {
     @StateObject private var appModel = AppViewModel()
 
-    init() {
-        // 明确以普通前台应用启动，确保程序坞和应用切换器中显示图标。
-        NSApp.setActivationPolicy(.regular)
-    }
-
     var body: some Scene {
         WindowGroup("会话管理", id: "manager-window") {
             SessionManagerView()
                 .environmentObject(appModel)
                 .task {
+                    // 进入窗口生命周期后再切到普通前台应用，避免在 App.init 阶段 NSApp 尚未创建时触发运行时崩溃。
+                    NSApp?.setActivationPolicy(.regular)
                     await appModel.load()
                 }
         }
