@@ -37,6 +37,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
     private weak var terminalView: TerminalView?
     private let transport = SSHPTYTransport()
     private let knownHostsService = KnownHostsService()
+    private let passwordStore = SessionPasswordStore()
     private var startedSessionID: UUID?
     private var pendingSession: SSHSessionProfile?
     private var pendingConnectedHandler: ((UUID) -> Void)?
@@ -89,6 +90,12 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
             if session.useKeychainForPrivateKey {
                 args.append(contentsOf: ["-o", "UseKeychain=yes", "-o", "AddKeysToAgent=yes"])
             }
+        } else if session.authMethod == .password {
+            args.append(contentsOf: [
+                "-o", "PreferredAuthentications=password,keyboard-interactive",
+                "-o", "PubkeyAuthentication=no",
+                "-o", "NumberOfPasswordPrompts=1"
+            ])
         }
         args.append(session.destination)
         if !session.startupCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -262,9 +269,28 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
     }
 
     private func startTransport(session: SSHSessionProfile, onConnected: @escaping (UUID) -> Void) {
+        let password: String?
+        if session.authMethod == .password {
+            do {
+                password = try passwordStore.loadPassword(for: session.id)
+            } catch {
+                connectionState = .failed("读取会话密码失败：\(error.localizedDescription)")
+                return
+            }
+            if password?.isEmpty != false {
+                connectionState = .failed("未找到该会话的登录密码，请重新编辑会话后保存")
+                return
+            }
+        } else {
+            password = nil
+        }
+
         do {
             let knownHostsPath = try KnownHostsService.defaultKnownHostsFilePath()
-            transport.start(arguments: Self.sshArguments(for: session, userKnownHostsPath: knownHostsPath))
+            transport.start(
+                arguments: Self.sshArguments(for: session, userKnownHostsPath: knownHostsPath),
+                password: password
+            )
         } catch {
             connectionState = .failed("读取 known_hosts 路径失败：\(error.localizedDescription)")
             return

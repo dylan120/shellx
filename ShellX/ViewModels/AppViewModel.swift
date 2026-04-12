@@ -7,14 +7,21 @@ final class AppViewModel: ObservableObject {
     @Published var sessions: [SSHSessionProfile] = []
     @Published var selectedFolderID: UUID?
     @Published var selectedSessionID: UUID?
+    @Published var openTerminalSessionIDs: [UUID] = []
+    @Published var activeTerminalSessionID: UUID?
     @Published var searchText = ""
     @Published var expandedFolderIDs: Set<UUID> = []
     @Published var errorMessage: String?
 
     private let repository: AppStorageRepository
+    private let passwordStore: SessionPasswordStore
 
-    init(repository: AppStorageRepository = AppStorageRepository()) {
+    init(
+        repository: AppStorageRepository = AppStorageRepository(),
+        passwordStore: SessionPasswordStore = SessionPasswordStore()
+    ) {
         self.repository = repository
+        self.passwordStore = passwordStore
     }
 
     func load() async {
@@ -58,6 +65,12 @@ final class AppViewModel: ObservableObject {
 
     var rootFolders: [SessionFolderNode] {
         buildNodes(parentID: nil)
+    }
+
+    var openTerminalSessions: [SSHSessionProfile] {
+        openTerminalSessionIDs.compactMap { sessionID in
+            sessions.first(where: { $0.id == sessionID })
+        }
     }
 
     func childFolders(of parentID: UUID?) -> [SessionFolder] {
@@ -118,9 +131,17 @@ final class AppViewModel: ObservableObject {
         persist()
     }
 
-    func saveSession(_ draft: SSHSessionProfile) {
-        var session = draft
+    func saveSession(_ submission: SessionEditorSubmission) {
+        var session = submission.session
         session.updatedAt = .now
+
+        do {
+            try syncSessionCredential(session: session, password: submission.password)
+        } catch {
+            errorMessage = "保存会话密码失败：\(error.localizedDescription)"
+            return
+        }
+
         if let index = sessions.firstIndex(where: { $0.id == session.id }) {
             sessions[index] = session
         } else {
@@ -139,11 +160,22 @@ final class AppViewModel: ObservableObject {
         duplicated.createdAt = .now
         duplicated.updatedAt = .now
         duplicated.lastConnectedAt = nil
-        saveSession(duplicated)
+        duplicated.passwordStoredInKeychain = false
+        sessions.append(duplicated)
+        sessions.sort(by: sessionSort)
+        selectedSessionID = duplicated.id
+        syncSelectionToVisibleSessions()
+        persist()
     }
 
     func deleteSession(_ session: SSHSessionProfile) {
         sessions.removeAll { $0.id == session.id }
+        closeTerminal(sessionID: session.id)
+        do {
+            try passwordStore.deletePassword(for: session.id)
+        } catch {
+            errorMessage = "删除会话密码失败：\(error.localizedDescription)"
+        }
         syncSelectionToVisibleSessions()
         persist()
     }
@@ -157,6 +189,24 @@ final class AppViewModel: ObservableObject {
 
     func dismissError() {
         errorMessage = nil
+    }
+
+    func openTerminal(sessionID: UUID) {
+        if !openTerminalSessionIDs.contains(sessionID) {
+            openTerminalSessionIDs.append(sessionID)
+        }
+        activeTerminalSessionID = sessionID
+        selectedSessionID = sessionID
+    }
+
+    func closeTerminal(sessionID: UUID) {
+        openTerminalSessionIDs.removeAll { $0 == sessionID }
+        guard activeTerminalSessionID == sessionID else { return }
+
+        activeTerminalSessionID = openTerminalSessionIDs.last
+        if let activeTerminalSessionID {
+            selectedSessionID = activeTerminalSessionID
+        }
     }
 
     func syncSelectionToVisibleSessions() {

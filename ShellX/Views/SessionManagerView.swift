@@ -22,7 +22,6 @@ struct SessionManagerView: View {
     }
 
     @EnvironmentObject private var appModel: AppViewModel
-    @Environment(\.openWindow) private var openWindow
     @State private var activeSheet: ActiveSheet?
 
     var body: some View {
@@ -82,12 +81,23 @@ struct SessionManagerView: View {
                 .listStyle(.inset)
             }
         } detail: {
-            SessionDetailView(
-                onEdit: { session in
-                    activeSheet = .editSession(session)
-                },
-                onConnect: openTerminal(for:)
-            )
+            if appModel.openTerminalSessions.isEmpty {
+                SessionDetailView(
+                    onEdit: { session in
+                        activeSheet = .editSession(session)
+                    },
+                    onConnect: openTerminal(for:)
+                )
+            } else {
+                TerminalTabWorkspaceView(
+                    onEdit: { session in
+                        activeSheet = .editSession(session)
+                    },
+                    onClose: { sessionID in
+                        appModel.closeTerminal(sessionID: sessionID)
+                    }
+                )
+            }
         }
         .frame(minWidth: 1080, minHeight: 680)
         .navigationTitle("ShellX")
@@ -121,13 +131,13 @@ struct SessionManagerView: View {
                 SessionEditorSheet(
                     session: SSHSessionProfile(folderID: appModel.selectedFolderID),
                     title: "新建 SSH 会话",
-                    onSave: appModel.saveSession
+                    onSave: saveSessionSubmission
                 )
             case .editSession(let session):
                 SessionEditorSheet(
                     session: session,
                     title: "编辑 SSH 会话",
-                    onSave: appModel.saveSession
+                    onSave: saveSessionSubmission
                 )
             case .createFolder(let parent):
                 FolderEditorSheet(
@@ -176,7 +186,87 @@ struct SessionManagerView: View {
     }
 
     private func openTerminal(for session: SSHSessionProfile) {
-        openWindow(id: "terminal-window", value: session.id.uuidString)
+        appModel.openTerminal(sessionID: session.id)
+    }
+
+    private func saveSessionSubmission(_ submission: SessionEditorSubmission) {
+        appModel.saveSession(submission)
+    }
+}
+
+private struct TerminalTabWorkspaceView: View {
+    @EnvironmentObject private var appModel: AppViewModel
+
+    let onEdit: (SSHSessionProfile) -> Void
+    let onClose: (UUID) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(appModel.openTerminalSessions) { session in
+                        HStack(spacing: 8) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "terminal")
+                                Text(session.name)
+                                    .lineLimit(1)
+                            }
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                appModel.activeTerminalSessionID = session.id
+                                appModel.selectedSessionID = session.id
+                            }
+
+                            Button {
+                                onClose(session.id)
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.caption.bold())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(tabBackground(for: session.id), in: Capsule())
+                    }
+                    if let activeSession = activeSession {
+                        Button("编辑当前会话") {
+                            onEdit(activeSession)
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+            }
+            .background(.thinMaterial)
+
+            if activeSession != nil {
+                ZStack {
+                    ForEach(appModel.openTerminalSessions) { session in
+                        TerminalWindowView(session: session)
+                            .opacity(appModel.activeTerminalSessionID == session.id ? 1 : 0)
+                            .allowsHitTesting(appModel.activeTerminalSessionID == session.id)
+                    }
+                }
+            } else {
+                ContentUnavailableView(
+                    "没有打开的终端标签",
+                    systemImage: "terminal",
+                    description: Text("从会话列表或详情面板中点击“连接”后，会在这里以标签页形式显示。")
+                )
+            }
+        }
+    }
+
+    private var activeSession: SSHSessionProfile? {
+        if let activeID = appModel.activeTerminalSessionID {
+            return appModel.sessions.first(where: { $0.id == activeID })
+        }
+        return appModel.openTerminalSessions.first
+    }
+
+    private func tabBackground(for sessionID: UUID) -> some ShapeStyle {
+        sessionID == appModel.activeTerminalSessionID ? AnyShapeStyle(.regularMaterial) : AnyShapeStyle(.clear)
     }
 }
 
@@ -208,6 +298,10 @@ private struct SessionDetailView: View {
                     if !session.privateKeyPath.isEmpty {
                         LabeledContent("私钥路径", value: session.privateKeyPath)
                         LabeledContent("Keychain", value: session.useKeychainForPrivateKey ? "已启用" : "未启用")
+                    }
+
+                    if session.authMethod == .password {
+                        LabeledContent("密码存储", value: session.passwordStoredInKeychain ? "系统 Keychain" : "未保存")
                     }
 
                     if !session.startupCommand.isEmpty {

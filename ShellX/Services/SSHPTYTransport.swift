@@ -26,6 +26,9 @@ final class SSHPTYTransport {
     private var pendingTrigger: ZModemTrigger?
     private var pendingData = Data()
     private var transferDirection: ZModemTransferDirection?
+    private var pendingPassword: String?
+    private var authTranscript = ""
+    private var didSendPassword = false
 
     // Swift 无法稳定直接导入 wait(2) 相关 C 宏，这里按 Darwin 的状态位规则自行解析。
     private static func waitStatus(_ status: Int32) -> Int32 {
@@ -53,8 +56,11 @@ final class SSHPTYTransport {
         terminate()
     }
 
-    func start(arguments: [String]) {
+    func start(arguments: [String], password: String? = nil) {
         terminate()
+        pendingPassword = password
+        authTranscript = ""
+        didSendPassword = false
 
         var windowSize = winsize(ws_row: 40, ws_col: 120, ws_xpixel: 0, ws_ypixel: 0)
         var fd: Int32 = -1
@@ -170,6 +176,9 @@ final class SSHPTYTransport {
         pendingTrigger = nil
         pendingData.removeAll(keepingCapacity: true)
         zmodemDetector.reset()
+        pendingPassword = nil
+        authTranscript = ""
+        didSendPassword = false
     }
 
     private func handleRead() {
@@ -183,6 +192,9 @@ final class SSHPTYTransport {
         }
 
         let data = Data(buffer.prefix(bytesRead))
+        if shouldAutoFillPassword(from: data) {
+            sendPasswordIfNeeded()
+        }
 
         if let helperStdIn {
             helperStdIn.fileHandleForWriting.write(data)
@@ -331,6 +343,9 @@ final class SSHPTYTransport {
         pendingTrigger = nil
         pendingData.removeAll(keepingCapacity: true)
         zmodemDetector.reset()
+        pendingPassword = nil
+        authTranscript = ""
+        didSendPassword = false
 
         let direction = transferDirection
         transferDirection = nil
@@ -363,5 +378,29 @@ final class SSHPTYTransport {
         waitSource?.cancel()
         readSource = nil
         waitSource = nil
+    }
+
+    private func shouldAutoFillPassword(from data: Data) -> Bool {
+        guard pendingPassword != nil, !didSendPassword else { return false }
+
+        let chunk = String(decoding: data, as: UTF8.self)
+        guard !chunk.isEmpty else { return false }
+
+        // 仅保留认证早期的短窗口输出，避免把后续业务输出误判成密码提示。
+        authTranscript.append(chunk.lowercased())
+        if authTranscript.count > 512 {
+            authTranscript = String(authTranscript.suffix(512))
+        }
+
+        return authTranscript.contains("password:")
+            || authTranscript.contains("密码:")
+            || authTranscript.contains("密码：")
+    }
+
+    private func sendPasswordIfNeeded() {
+        guard let pendingPassword, !didSendPassword else { return }
+        send(Data((pendingPassword + "\n").utf8))
+        didSendPassword = true
+        self.pendingPassword = nil
     }
 }

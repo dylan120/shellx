@@ -1,14 +1,20 @@
 import SwiftUI
 
+struct SessionEditorSubmission {
+    let session: SSHSessionProfile
+    let password: String
+}
+
 struct SessionEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var appModel: AppViewModel
 
     @State private var draft: SSHSessionProfile
+    @State private var password = ""
     let title: String
-    let onSave: (SSHSessionProfile) -> Void
+    let onSave: (SessionEditorSubmission) -> Void
 
-    init(session: SSHSessionProfile, title: String, onSave: @escaping (SSHSessionProfile) -> Void) {
+    init(session: SSHSessionProfile, title: String, onSave: @escaping (SessionEditorSubmission) -> Void) {
         self._draft = State(initialValue: session)
         self.title = title
         self.onSave = onSave
@@ -40,6 +46,13 @@ struct SessionEditorSheet: View {
                     Toggle("将私钥口令交给系统 Keychain 管理", isOn: $draft.useKeychainForPrivateKey)
                 }
 
+                if draft.authMethod == .password {
+                    SecureField("登录密码", text: $password)
+                    Text(passwordHelpText)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
                 Picker("所属文件夹", selection: $draft.folderID) {
                     Text("未分组").tag(Optional<UUID>.none)
                     ForEach(appModel.folders.sorted(by: { $0.name < $1.name })) { folder in
@@ -62,15 +75,46 @@ struct SessionEditorSheet: View {
                     dismiss()
                 }
                 Button("保存") {
-                    onSave(draft)
+                    var session = draft
+                    if session.authMethod != .password {
+                        session.passwordStoredInKeychain = false
+                    } else if !trimmedPassword.isEmpty {
+                        session.passwordStoredInKeychain = true
+                    }
+
+                    onSave(
+                        SessionEditorSubmission(
+                            session: session,
+                            password: trimmedPassword
+                        )
+                    )
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(!draft.isValid)
+                .disabled(!canSave)
             }
         }
         .padding(20)
         .frame(minWidth: 520, minHeight: 420)
+    }
+
+    private var trimmedPassword: String {
+        password.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var canSave: Bool {
+        guard draft.isValid else { return false }
+        if draft.authMethod == .password {
+            return draft.passwordStoredInKeychain || !trimmedPassword.isEmpty
+        }
+        return true
+    }
+
+    private var passwordHelpText: String {
+        if draft.passwordStoredInKeychain {
+            return "密码已保存在系统 Keychain；留空可保持原密码不变。"
+        }
+        return "密码仅保存在系统 Keychain，不会写入 ShellX 的 sessions.json。"
     }
 }
 

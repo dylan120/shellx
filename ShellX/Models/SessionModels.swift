@@ -3,6 +3,7 @@ import Foundation
 enum SSHAuthMethod: String, Codable, CaseIterable, Identifiable {
     case sshAgent = "agent"
     case privateKey = "privateKey"
+    case password = "password"
 
     var id: String { rawValue }
 
@@ -12,6 +13,8 @@ enum SSHAuthMethod: String, Codable, CaseIterable, Identifiable {
             return "SSH Agent"
         case .privateKey:
             return "私钥文件"
+        case .password:
+            return "账号密码"
         }
     }
 }
@@ -47,6 +50,7 @@ struct SSHSessionProfile: Identifiable, Codable, Hashable {
     var username: String
     var authMethod: SSHAuthMethod
     var privateKeyPath: String
+    var passwordStoredInKeychain: Bool
     var useKeychainForPrivateKey: Bool
     var startupCommand: String
     var notes: String
@@ -63,6 +67,7 @@ struct SSHSessionProfile: Identifiable, Codable, Hashable {
         username: String = "",
         authMethod: SSHAuthMethod = .sshAgent,
         privateKeyPath: String = "",
+        passwordStoredInKeychain: Bool = false,
         useKeychainForPrivateKey: Bool = false,
         startupCommand: String = "",
         notes: String = "",
@@ -78,6 +83,7 @@ struct SSHSessionProfile: Identifiable, Codable, Hashable {
         self.username = username
         self.authMethod = authMethod
         self.privateKeyPath = privateKeyPath
+        self.passwordStoredInKeychain = passwordStoredInKeychain
         self.useKeychainForPrivateKey = useKeychainForPrivateKey
         self.startupCommand = startupCommand
         self.notes = notes
@@ -95,6 +101,7 @@ struct SSHSessionProfile: Identifiable, Codable, Hashable {
         case username
         case authMethod
         case privateKeyPath
+        case passwordStoredInKeychain
         case useKeychainForPrivateKey
         case startupCommand
         case notes
@@ -113,6 +120,7 @@ struct SSHSessionProfile: Identifiable, Codable, Hashable {
         username = try container.decodeIfPresent(String.self, forKey: .username) ?? ""
         authMethod = try container.decodeIfPresent(SSHAuthMethod.self, forKey: .authMethod) ?? .sshAgent
         privateKeyPath = try container.decodeIfPresent(String.self, forKey: .privateKeyPath) ?? ""
+        passwordStoredInKeychain = try container.decodeIfPresent(Bool.self, forKey: .passwordStoredInKeychain) ?? false
         useKeychainForPrivateKey = try container.decodeIfPresent(Bool.self, forKey: .useKeychainForPrivateKey) ?? false
         startupCommand = try container.decodeIfPresent(String.self, forKey: .startupCommand) ?? ""
         notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
@@ -137,6 +145,8 @@ struct SSHSessionProfile: Identifiable, Codable, Hashable {
             validPrivateKey = true
         case .privateKey:
             validPrivateKey = !privateKeyPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .password:
+            validPrivateKey = !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
 
         return hasName && hasHost && validPort && validPrivateKey

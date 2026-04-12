@@ -5,7 +5,13 @@ import XCTest
 final class AppViewModelTests: XCTestCase {
     func testDuplicateSessionCreatesNewIdentifier() {
         let viewModel = AppViewModel(repository: AppStorageRepository())
-        let source = SSHSessionProfile(name: "test", host: "127.0.0.1", username: "root")
+        let source = SSHSessionProfile(
+            name: "test",
+            host: "127.0.0.1",
+            username: "root",
+            authMethod: .password,
+            passwordStoredInKeychain: true
+        )
         viewModel.sessions = [source]
 
         viewModel.duplicateSession(source)
@@ -13,6 +19,7 @@ final class AppViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.sessions.count, 2)
         XCTAssertNotEqual(viewModel.sessions[0].id, viewModel.sessions[1].id)
         XCTAssertTrue(viewModel.sessions.contains(where: { $0.name == "test-副本" }))
+        XCTAssertFalse(viewModel.sessions.contains(where: { $0.name == "test-副本" && $0.passwordStoredInKeychain }))
     }
 
     func testDeleteFolderMovesChildrenAndSessionsToParent() {
@@ -79,6 +86,28 @@ final class AppViewModelTests: XCTestCase {
         XCTAssertFalse(invalidPort.isValid)
     }
 
+    func testPasswordSessionRequiresUsername() {
+        let valid = SSHSessionProfile(
+            name: "password-session",
+            host: "example.com",
+            port: 22,
+            username: "dev",
+            authMethod: .password,
+            passwordStoredInKeychain: true
+        )
+        let missingUsername = SSHSessionProfile(
+            name: "password-session",
+            host: "example.com",
+            port: 22,
+            username: "",
+            authMethod: .password,
+            passwordStoredInKeychain: true
+        )
+
+        XCTAssertTrue(valid.isValid)
+        XCTAssertFalse(missingUsername.isValid)
+    }
+
     func testSwiftTermSSHArgumentsContainPrivateKeyAndStartupCommand() {
         let session = SSHSessionProfile(
             name: "prod",
@@ -101,6 +130,24 @@ final class AppViewModelTests: XCTestCase {
         XCTAssertTrue(args.contains("-i"))
         XCTAssertTrue(args.contains("ops@example.com"))
         XCTAssertEqual(args.last, "cd /srv/app")
+    }
+
+    func testPasswordSSHArgumentsPreferPasswordAuthentication() {
+        let session = SSHSessionProfile(
+            name: "prod-password",
+            host: "example.com",
+            port: 22,
+            username: "ops",
+            authMethod: .password,
+            passwordStoredInKeychain: true
+        )
+
+        let args = TerminalSessionViewModel.sshArguments(for: session, userKnownHostsPath: "/tmp/shellx-known_hosts")
+
+        XCTAssertTrue(args.contains("PreferredAuthentications=password,keyboard-interactive"))
+        XCTAssertTrue(args.contains("PubkeyAuthentication=no"))
+        XCTAssertTrue(args.contains("NumberOfPasswordPrompts=1"))
+        XCTAssertTrue(args.contains("ops@example.com"))
     }
 
     func testSessionProfileDecodeBackfillsUseKeychainDefault() throws {
@@ -129,6 +176,38 @@ final class AppViewModelTests: XCTestCase {
 
         XCTAssertEqual(workspace.sessions.count, 1)
         XCTAssertFalse(workspace.sessions[0].useKeychainForPrivateKey)
+        XCTAssertFalse(workspace.sessions[0].passwordStoredInKeychain)
+    }
+
+    func testOpenAndCloseTerminalTabsUpdatesActiveSession() {
+        let viewModel = AppViewModel(repository: AppStorageRepository())
+        let first = SSHSessionProfile(name: "first", host: "10.0.0.1", username: "ops")
+        let second = SSHSessionProfile(name: "second", host: "10.0.0.2", username: "ops")
+        viewModel.sessions = [first, second]
+
+        viewModel.openTerminal(sessionID: first.id)
+        viewModel.openTerminal(sessionID: second.id)
+
+        XCTAssertEqual(viewModel.openTerminalSessionIDs, [first.id, second.id])
+        XCTAssertEqual(viewModel.activeTerminalSessionID, second.id)
+
+        viewModel.closeTerminal(sessionID: second.id)
+
+        XCTAssertEqual(viewModel.openTerminalSessionIDs, [first.id])
+        XCTAssertEqual(viewModel.activeTerminalSessionID, first.id)
+    }
+
+    func testOpenTerminalReusesExistingTabAndActivatesSelection() {
+        let viewModel = AppViewModel(repository: AppStorageRepository())
+        let session = SSHSessionProfile(name: "prod", host: "example.com", username: "ops")
+        viewModel.sessions = [session]
+
+        viewModel.openTerminal(sessionID: session.id)
+        viewModel.openTerminal(sessionID: session.id)
+
+        XCTAssertEqual(viewModel.openTerminalSessionIDs, [session.id])
+        XCTAssertEqual(viewModel.activeTerminalSessionID, session.id)
+        XCTAssertEqual(viewModel.selectedSessionID, session.id)
     }
 
     func testZModemTriggerDetectorRecognizesUploadPrompt() {
