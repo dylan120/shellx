@@ -80,13 +80,17 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
         hostKeyPrompt = nil
     }
 
-    static func sshArguments(for session: SSHSessionProfile, userKnownHostsPath: String) -> [String] {
+    static func sshArguments(
+        for session: SSHSessionProfile,
+        userKnownHostsPath: String,
+        strictHostKeyChecking: String = "yes"
+    ) -> [String] {
         var args = [
             "-tt",
             "-p", "\(session.port)",
             "-o", "UserKnownHostsFile=\(userKnownHostsPath)",
             "-o", "GlobalKnownHostsFile=/dev/null",
-            "-o", "StrictHostKeyChecking=yes",
+            "-o", "StrictHostKeyChecking=\(strictHostKeyChecking)",
             "-o", "UpdateHostKeys=no"
         ]
         if session.authMethod == .privateKey {
@@ -212,7 +216,8 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
                     self.startTransport(
                         session: pendingSession,
                         onConnected: pendingConnectedHandler,
-                        knownHostsPathOverride: temporaryKnownHostsPath
+                        knownHostsPathOverride: temporaryKnownHostsPath,
+                        strictHostKeyCheckingOverride: "no"
                     )
                 }
             } catch {
@@ -308,7 +313,8 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
         session: SSHSessionProfile,
         onConnected: @escaping (UUID) -> Void,
         passwordOverride: String? = nil,
-        knownHostsPathOverride: String? = nil
+        knownHostsPathOverride: String? = nil,
+        strictHostKeyCheckingOverride: String? = nil
     ) {
         let password: String?
         if session.authMethod == .password {
@@ -358,7 +364,11 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
                 try KnownHostsService.defaultKnownHostsFilePath()
             }
             transport.start(
-                arguments: Self.sshArguments(for: session, userKnownHostsPath: knownHostsPath),
+                arguments: Self.sshArguments(
+                    for: session,
+                    userKnownHostsPath: knownHostsPath,
+                    strictHostKeyChecking: strictHostKeyCheckingOverride ?? "yes"
+                ),
                 password: password
             )
         } catch {
