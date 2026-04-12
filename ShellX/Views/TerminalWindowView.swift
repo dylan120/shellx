@@ -24,6 +24,7 @@ struct TerminalWindowView: View {
     @EnvironmentObject private var appModel: AppViewModel
     @StateObject private var sessionModel = TerminalSessionViewModel()
     @State private var showingErrorDetails = false
+    @State private var isPresentingZModemPanel = false
 
     let session: SSHSessionProfile
 
@@ -150,6 +151,8 @@ struct TerminalWindowView: View {
 
     @MainActor
     private func presentZModemSelection(_ request: ZModemSelectionRequest) {
+        guard !isPresentingZModemPanel else { return }
+        isPresentingZModemPanel = true
         NSApp.activate(ignoringOtherApps: true)
 
         let panel = NSOpenPanel()
@@ -162,6 +165,7 @@ struct TerminalWindowView: View {
         panel.prompt = request == .upload ? "上传" : "选择目录"
 
         let handleResult: (NSApplication.ModalResponse) -> Void = { response in
+            isPresentingZModemPanel = false
             if response == .OK, let url = panel.url {
                 switch request {
                 case .upload:
@@ -179,13 +183,17 @@ struct TerminalWindowView: View {
             }
         }
 
-        // 终端标签页在主窗口内时，优先以 sheet 挂到当前窗口，避免文件选择器在后台或不显示。
-        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
-            window.beginSheet(panel) { response in
-                handleResult(response)
+        DispatchQueue.main.async {
+            // 避免在 SwiftUI 状态更新周期里同步挂 sheet，降低“看得见但不能点”的事件链异常概率。
+            if let window = NSApp.keyWindow ?? NSApp.mainWindow, window.attachedSheet == nil {
+                window.beginSheet(panel) { response in
+                    handleResult(response)
+                }
+            } else {
+                panel.begin { response in
+                    handleResult(response)
+                }
             }
-        } else {
-            handleResult(panel.runModal())
         }
     }
 }
