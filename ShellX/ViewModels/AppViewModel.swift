@@ -159,7 +159,12 @@ final class AppViewModel: ObservableObject {
         guard folders[index].parentID != parentID else { return }
 
         // 禁止把文件夹拖到自己或自己的后代节点下，避免形成循环树结构。
-        if folderID == parentID || isDescendant(parentID, of: folderID) {
+        if folderID == parentID {
+            errorMessage = "不能将文件夹移动到自身或其子文件夹中。"
+            return
+        }
+
+        if let parentID, isDescendant(parentID, of: folderID) {
             errorMessage = "不能将文件夹移动到自身或其子文件夹中。"
             return
         }
