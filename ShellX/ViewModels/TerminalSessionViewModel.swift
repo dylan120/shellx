@@ -46,7 +46,7 @@ enum ZModemSelectionRequest: Identifiable, Equatable {
 }
 
 @MainActor
-final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDelegate, SSHPTYTransportDelegate {
+final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTransportDelegate {
     @Published var connectionState: TerminalConnectionState = .idle
     @Published var terminalTitle = "SSH 控制台"
     @Published var workingDirectory: String?
@@ -135,46 +135,6 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
             args.append(session.startupCommand)
         }
         return args
-    }
-
-    func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
-        transport.resize(cols: newCols, rows: newRows)
-    }
-
-    func setTerminalTitle(source: TerminalView, title: String) {
-        terminalTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "SSH 控制台" : title
-    }
-
-    func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {
-        workingDirectory = directory
-    }
-
-    func send(source: TerminalView, data: ArraySlice<UInt8>) {
-        transport.send(Data(data))
-    }
-
-    func scrolled(source: TerminalView, position: Double) {
-    }
-
-    func requestOpenLink(source: TerminalView, link: String, params: [String : String]) {
-        guard let url = URL(string: link) else { return }
-        NSWorkspace.shared.open(url)
-    }
-
-    func bell(source: TerminalView) {
-        NSSound.beep()
-    }
-
-    func clipboardCopy(source: TerminalView, content: Data) {
-        guard let string = String(data: content, encoding: .utf8) else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(string, forType: .string)
-    }
-
-    func iTermContent(source: TerminalView, content: ArraySlice<UInt8>) {
-    }
-
-    func rangeChanged(source: TerminalView, startY: Int, endY: Int) {
     }
 
     func transportDidReceive(_ data: Data) {
@@ -508,5 +468,48 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
     private func cancelTransferBannerReset() {
         transferBannerResetTask?.cancel()
         transferBannerResetTask = nil
+    }
+}
+
+@preconcurrency
+extension TerminalSessionViewModel: TerminalViewDelegate {
+    func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
+        transport.resize(cols: newCols, rows: newRows)
+    }
+
+    func setTerminalTitle(source: TerminalView, title: String) {
+        terminalTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "SSH 控制台" : title
+    }
+
+    func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {
+        workingDirectory = directory
+    }
+
+    func send(source: TerminalView, data: ArraySlice<UInt8>) {
+        transport.send(Data(data))
+    }
+
+    func scrolled(source: TerminalView, position: Double) {
+    }
+
+    func requestOpenLink(source: TerminalView, link: String, params: [String : String]) {
+        guard let url = URL(string: link) else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    func bell(source: TerminalView) {
+        NSSound.beep()
+    }
+
+    func clipboardCopy(source: TerminalView, content: Data) {
+        guard let string = String(data: content, encoding: .utf8) else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(string, forType: .string)
+    }
+
+    func iTermContent(source: TerminalView, content: ArraySlice<UInt8>) {
+    }
+
+    func rangeChanged(source: TerminalView, startY: Int, endY: Int) {
     }
 }

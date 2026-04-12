@@ -139,7 +139,7 @@ final class SSHPTYTransport {
             return
         }
         var windowSize = winsize(ws_row: UInt16(rows), ws_col: UInt16(cols), ws_xpixel: 0, ws_ypixel: 0)
-        ioctl(masterFD, TIOCSWINSZ, &windowSize)
+        _ = ioctl(masterFD, TIOCSWINSZ, &windowSize)
         lastWindowSize = (cols, rows)
     }
 
