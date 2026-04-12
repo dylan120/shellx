@@ -10,8 +10,8 @@ struct TerminalWindowContainerView: View {
            let uuid = UUID(uuidString: sessionID),
            let session = appModel.sessions.first(where: { $0.id == uuid }) {
             TerminalWindowView(
-                session: session,
-                sessionModel: appModel.terminalSessionModel(for: session.id)
+                sessionModel: appModel.terminalSessionModel(for: session.id),
+                session: session
             )
         } else {
             ContentUnavailableView(

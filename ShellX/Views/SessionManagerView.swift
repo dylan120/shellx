@@ -247,8 +247,8 @@ private struct TerminalTabWorkspaceView: View {
 
             if let activeSession {
                 TerminalWindowView(
-                    session: activeSession,
-                    sessionModel: appModel.terminalSessionModel(for: activeSession.id)
+                    sessionModel: appModel.terminalSessionModel(for: activeSession.id),
+                    session: activeSession
                 )
                 .id(activeSession.id)
                 .overlay(alignment: .topTrailing) {
