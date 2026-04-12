@@ -58,12 +58,7 @@ struct TerminalWindowView: View {
 
                 if let bannerText = sessionModel.transferState.bannerText ?? sessionModel.lastExitMessage,
                    sessionModel.connectionState != .connected || sessionModel.transferState != .idle {
-                    Text(bannerText)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+                    ErrorBannerView(message: bannerText)
                         .padding(12)
                 }
             }
@@ -118,6 +113,32 @@ struct TerminalWindowView: View {
         sessionModel.reconnect(session: session) { sessionID in
             appModel.markConnected(sessionID: sessionID)
         }
+    }
+}
+
+private struct ErrorBannerView: View {
+    let message: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+
+            HStack {
+                Spacer()
+                Button("复制错误") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(message, forType: .string)
+                }
+                .buttonStyle(.borderless)
+                .font(.caption)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
     }
 }
 
