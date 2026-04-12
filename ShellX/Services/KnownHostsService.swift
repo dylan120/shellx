@@ -31,7 +31,9 @@ actor KnownHostsService {
     func evaluate(host: String, port: Int) async throws -> KnownHostTrustState {
         let scannedLines = try await scanHostKeys(host: host, port: port)
         guard !scannedLines.isEmpty else {
-            throw KnownHostsError.scanFailed("未获取到主机公钥")
+            throw KnownHostsError.scanFailed(
+                "未获取到主机公钥，请确认目标主机可达且端口 \(port) 已开放。可先手动执行：ssh-keyscan -T 5 -t ed25519,ecdsa,rsa -p \(port) \(host)"
+            )
         }
 
         let newFingerprints = try scannedLines.map(fingerprint)
@@ -193,10 +195,16 @@ actor KnownHostsService {
                 arguments: ["-T", "5", "-t", preferredAlgorithms, "-p", "\(port)", host]
             )
         } catch {
-            output = try await runProcess(
-                executable: "/usr/bin/ssh-keyscan",
-                arguments: ["-T", "5", "-p", "\(port)", host]
-            )
+            do {
+                output = try await runProcess(
+                    executable: "/usr/bin/ssh-keyscan",
+                    arguments: ["-T", "5", "-p", "\(port)", host]
+                )
+            } catch {
+                throw KnownHostsError.scanFailed(
+                    "无法通过 ssh-keyscan 获取 \(host):\(port) 的主机指纹。请确认网络可达、SSH 端口正确，或先手动执行：ssh-keyscan -T 5 -t \(preferredAlgorithms) -p \(port) \(host)"
+                )
+            }
         }
 
         var seen = Set<String>()
@@ -247,7 +255,11 @@ actor KnownHostsService {
         let errorOutput = String(decoding: errorData, as: UTF8.self)
 
         guard process.terminationStatus == 0 || !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw KnownHostsError.scanFailed(errorOutput.isEmpty ? "执行失败" : errorOutput)
+            let commandDescription = ([executable] + arguments).joined(separator: " ")
+            let message = errorOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+            throw KnownHostsError.scanFailed(
+                message.isEmpty ? "命令执行失败：\(commandDescription)" : "\(message)\n命令：\(commandDescription)"
+            )
         }
 
         return output
