@@ -53,7 +53,7 @@ struct SessionManagerView: View {
                 }
             )
         } detail: {
-            if appModel.openTerminalSessions.isEmpty {
+            if appModel.openTerminalTabs.isEmpty {
                 SessionDetailView(
                     onEdit: { session in
                         activeSheet = .editSession(session)
@@ -176,9 +176,9 @@ private struct TerminalTabWorkspaceView: View {
         VStack(spacing: 0) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
-                    ForEach(Array(appModel.openTerminalSessions.enumerated()), id: \.element.id) { index, session in
-                        let sessionModel = appModel.terminalSessionModel(for: session.id)
-                        let isActive = session.id == appModel.activeTerminalSessionID
+                    ForEach(Array(appModel.openTerminalTabs.enumerated()), id: \.element.id) { index, tab in
+                        let sessionModel = appModel.terminalSessionModel(for: tab.id)
+                        let isActive = tab.id == appModel.activeTerminalSessionID
                         HStack(spacing: 6) {
                             if index > 0 {
                                 Rectangle()
@@ -189,7 +189,7 @@ private struct TerminalTabWorkspaceView: View {
                             HStack(spacing: 6) {
                                 Image(systemName: "terminal")
                                     .font(.caption)
-                                Text(session.name)
+                                Text(tab.title)
                                     .font(.caption.weight(isActive ? .semibold : .regular))
                                     .lineLimit(1)
                             }
@@ -206,47 +206,60 @@ private struct TerminalTabWorkspaceView: View {
                         }
                         .foregroundStyle(isActive ? Color.white : Color.primary)
                         .onTapGesture {
-                            appModel.activeTerminalSessionID = session.id
-                            appModel.selectedSessionID = session.id
+                            appModel.activeTerminalSessionID = tab.id
+                            if case .ssh(let session) = tab.kind {
+                                appModel.selectedSessionID = session.id
+                            }
                         }
                         .help("右击显示标签操作")
                         .contextMenu {
                             Button("切换到此标签") {
-                                appModel.activeTerminalSessionID = session.id
-                                appModel.selectedSessionID = session.id
+                                appModel.activeTerminalSessionID = tab.id
+                                if case .ssh(let session) = tab.kind {
+                                    appModel.selectedSessionID = session.id
+                                }
                             }
                             Divider()
                             Button("重连") {
-                                appModel.activeTerminalSessionID = session.id
-                                appModel.selectedSessionID = session.id
-                                sessionModel.reconnect(session: session) { sessionID in
-                                    appModel.markConnected(sessionID: sessionID)
+                                appModel.activeTerminalSessionID = tab.id
+                                switch tab.kind {
+                                case .local(let shellPath):
+                                    sessionModel.startLocalShell(shellPath: shellPath)
+                                case .ssh(let session):
+                                    appModel.selectedSessionID = session.id
+                                    sessionModel.reconnect(session: session) { sessionID in
+                                        appModel.markConnected(sessionID: sessionID)
+                                    }
                                 }
                             }
                             Button("断开") {
-                                appModel.activeTerminalSessionID = session.id
-                                appModel.selectedSessionID = session.id
+                                appModel.activeTerminalSessionID = tab.id
+                                if case .ssh(let session) = tab.kind {
+                                    appModel.selectedSessionID = session.id
+                                }
                                 sessionModel.terminate()
                             }
-                            Divider()
-                            Button("SFTP 上传文件/文件夹") {
-                                appModel.activeTerminalSessionID = session.id
-                                appModel.selectedSessionID = session.id
-                                sessionModel.requestSFTPUpload()
+                            if case .ssh(let session) = tab.kind {
+                                Divider()
+                                Button("SFTP 上传文件/文件夹") {
+                                    appModel.activeTerminalSessionID = session.id
+                                    appModel.selectedSessionID = session.id
+                                    sessionModel.requestSFTPUpload()
+                                }
+                                .disabled(sessionModel.connectionState != .connected)
+                                Button("SFTP 下载文件") {
+                                    appModel.activeTerminalSessionID = session.id
+                                    appModel.selectedSessionID = session.id
+                                    sessionModel.requestSFTPDownloadFile()
+                                }
+                                .disabled(sessionModel.connectionState != .connected)
+                                Button("SFTP 下载文件夹") {
+                                    appModel.activeTerminalSessionID = session.id
+                                    appModel.selectedSessionID = session.id
+                                    sessionModel.requestSFTPDownloadDirectory()
+                                }
+                                .disabled(sessionModel.connectionState != .connected)
                             }
-                            .disabled(sessionModel.connectionState != .connected)
-                            Button("SFTP 下载文件") {
-                                appModel.activeTerminalSessionID = session.id
-                                appModel.selectedSessionID = session.id
-                                sessionModel.requestSFTPDownloadFile()
-                            }
-                            .disabled(sessionModel.connectionState != .connected)
-                            Button("SFTP 下载文件夹") {
-                                appModel.activeTerminalSessionID = session.id
-                                appModel.selectedSessionID = session.id
-                                sessionModel.requestSFTPDownloadDirectory()
-                            }
-                            .disabled(sessionModel.connectionState != .connected)
                             Button("复制调试") {
                                 let passwordStoreDebug = SessionPasswordStore.debugSnapshot()
                                 let debugText = [
@@ -266,7 +279,7 @@ private struct TerminalTabWorkspaceView: View {
                             .disabled(SessionPasswordStore.debugSnapshot().isEmpty && sessionModel.terminalDebugSnapshot.isEmpty)
                             Divider()
                             Button("关闭标签") {
-                                onClose(session.id)
+                                onClose(tab.id)
                             }
                         }
                     }
@@ -276,16 +289,29 @@ private struct TerminalTabWorkspaceView: View {
             }
             .background(.thinMaterial)
 
-            if !appModel.openTerminalSessions.isEmpty {
+            if !appModel.openTerminalTabs.isEmpty {
                 ZStack(alignment: .topTrailing) {
-                    ForEach(appModel.openTerminalSessions) { session in
-                        TerminalWindowView(
-                            sessionModel: appModel.terminalSessionModel(for: session.id),
-                            session: session
-                        )
-                        .opacity(session.id == appModel.activeTerminalSessionID ? 1 : 0)
-                        .allowsHitTesting(session.id == appModel.activeTerminalSessionID)
-                        .accessibilityHidden(session.id != appModel.activeTerminalSessionID)
+                    ForEach(appModel.openTerminalTabs) { tab in
+                        switch tab.kind {
+                        case .local(let shellPath):
+                            TerminalWindowView(
+                                sessionModel: appModel.terminalSessionModel(for: tab.id),
+                                session: nil,
+                                localShellPath: shellPath
+                            )
+                            .opacity(tab.id == appModel.activeTerminalSessionID ? 1 : 0)
+                            .allowsHitTesting(tab.id == appModel.activeTerminalSessionID)
+                            .accessibilityHidden(tab.id != appModel.activeTerminalSessionID)
+                        case .ssh(let session):
+                            TerminalWindowView(
+                                sessionModel: appModel.terminalSessionModel(for: session.id),
+                                session: session,
+                                localShellPath: nil
+                            )
+                            .opacity(session.id == appModel.activeTerminalSessionID ? 1 : 0)
+                            .allowsHitTesting(session.id == appModel.activeTerminalSessionID)
+                            .accessibilityHidden(session.id != appModel.activeTerminalSessionID)
+                        }
                     }
 
                     if let selectedSession = appModel.selectedSession,

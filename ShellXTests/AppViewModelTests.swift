@@ -3,6 +3,16 @@ import XCTest
 
 @MainActor
 final class AppViewModelTests: XCTestCase {
+    func testOpenLocalTerminalUsesFixedTabIdentifier() {
+        let viewModel = AppViewModel(repository: AppStorageRepository())
+
+        viewModel.openLocalTerminal()
+
+        XCTAssertEqual(viewModel.openTerminalSessionIDs, [AppViewModel.localTerminalID])
+        XCTAssertEqual(viewModel.activeTerminalSessionID, AppViewModel.localTerminalID)
+        XCTAssertEqual(viewModel.openTerminalTabs.first?.title, "本机终端")
+    }
+
     func testDuplicateSessionCreatesNewIdentifier() {
         let viewModel = AppViewModel(repository: AppStorageRepository())
         let source = SSHSessionProfile(

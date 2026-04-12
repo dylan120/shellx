@@ -1,8 +1,22 @@
 import Foundation
 import SwiftUI
 
+struct TerminalTabItem: Identifiable, Equatable {
+    enum Kind: Equatable {
+        case local(shellPath: String)
+        case ssh(SSHSessionProfile)
+    }
+
+    let id: UUID
+    let title: String
+    let kind: Kind
+}
+
 @MainActor
 final class AppViewModel: ObservableObject {
+    static let localTerminalID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+    static let defaultLocalShellPath = "/bin/zsh"
+
     @Published var folders: [SessionFolder] = []
     @Published var sessions: [SSHSessionProfile] = []
     @Published var selectedFolderID: UUID?
@@ -36,6 +50,10 @@ final class AppViewModel: ObservableObject {
             expandedFolderIDs.formUnion(folders.compactMap(\.parentID))
         } catch {
             errorMessage = "读取会话配置失败：\(error.localizedDescription)"
+        }
+
+        if openTerminalSessionIDs.isEmpty {
+            openLocalTerminal()
         }
     }
 
@@ -75,6 +93,25 @@ final class AppViewModel: ObservableObject {
     var openTerminalSessions: [SSHSessionProfile] {
         openTerminalSessionIDs.compactMap { sessionID in
             sessions.first(where: { $0.id == sessionID })
+        }
+    }
+
+    var openTerminalTabs: [TerminalTabItem] {
+        openTerminalSessionIDs.compactMap { sessionID in
+            if sessionID == Self.localTerminalID {
+                return TerminalTabItem(
+                    id: sessionID,
+                    title: "本机终端",
+                    kind: .local(shellPath: Self.defaultLocalShellPath)
+                )
+            }
+
+            guard let session = sessions.first(where: { $0.id == sessionID }) else { return nil }
+            return TerminalTabItem(
+                id: sessionID,
+                title: session.name,
+                kind: .ssh(session)
+            )
         }
     }
 
@@ -253,6 +290,13 @@ final class AppViewModel: ObservableObject {
         selectedSessionID = sessionID
     }
 
+    func openLocalTerminal() {
+        if !openTerminalSessionIDs.contains(Self.localTerminalID) {
+            openTerminalSessionIDs.append(Self.localTerminalID)
+        }
+        activeTerminalSessionID = Self.localTerminalID
+    }
+
     func closeTerminal(sessionID: UUID) {
         if let sessionModel = terminalSessionModels.removeValue(forKey: sessionID) {
             sessionModel.terminate()
@@ -261,7 +305,7 @@ final class AppViewModel: ObservableObject {
         guard activeTerminalSessionID == sessionID else { return }
 
         activeTerminalSessionID = openTerminalSessionIDs.last
-        if let activeTerminalSessionID {
+        if let activeTerminalSessionID, activeTerminalSessionID != Self.localTerminalID {
             selectedSessionID = activeTerminalSessionID
         }
     }

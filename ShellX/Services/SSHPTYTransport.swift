@@ -65,6 +65,26 @@ final class SSHPTYTransport {
     }
 
     func start(arguments: [String], password: String? = nil) {
+        startProcess(
+            executablePath: "/usr/bin/ssh",
+            arguments: arguments,
+            password: password
+        )
+    }
+
+    func startLocalShell(shellPath: String, arguments: [String] = ["-l"]) {
+        startProcess(
+            executablePath: Self.preferredLocalShellPath(preferred: shellPath),
+            arguments: arguments,
+            password: nil
+        )
+    }
+
+    private func startProcess(
+        executablePath: String,
+        arguments: [String],
+        password: String?
+    ) {
         terminate()
         pendingPassword = password
         authTranscript = ""
@@ -86,10 +106,10 @@ final class SSHPTYTransport {
             setenv("COLORTERM", "truecolor", 1)
             chdir(NSHomeDirectory())
 
-            var cStrings = (["/usr/bin/ssh"] + arguments).map { strdup($0) }
+            var cStrings = ([executablePath] + arguments).map { strdup($0) }
             cStrings.append(nil)
             _ = cStrings.withUnsafeMutableBufferPointer { buffer in
-                execvp("/usr/bin/ssh", buffer.baseAddress)
+                execvp(executablePath, buffer.baseAddress)
             }
             _exit(127)
         }
@@ -120,6 +140,23 @@ final class SSHPTYTransport {
         }
         waitSource.resume()
         self.waitSource = waitSource
+    }
+
+    private static func preferredLocalShellPath(preferred: String) -> String {
+        // 优先使用产品定义的默认本机 shell；若当前机器没有该路径，再退回用户环境和常见 shell。
+        let candidates = [
+            preferred,
+            ProcessInfo.processInfo.environment["SHELL"],
+            "/bin/zsh",
+            "/bin/bash"
+        ]
+        .compactMap { $0 }
+
+        for candidate in candidates where FileManager.default.isExecutableFile(atPath: candidate) {
+            return candidate
+        }
+
+        return preferred
     }
 
     func send(_ data: Data, trackAsUserInput: Bool = true) {

@@ -74,6 +74,20 @@ enum SFTPLocalSelectionRequest: Identifiable, Equatable {
     }
 }
 
+private enum TerminalRuntimeKind: Equatable {
+    case ssh(SSHSessionProfile)
+    case local(shellPath: String)
+
+    var defaultTitle: String {
+        switch self {
+        case .ssh:
+            return "SSH 控制台"
+        case .local:
+            return "本机终端"
+        }
+    }
+}
+
 @MainActor
 final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTransportDelegate, SFTPTransferServiceDelegate {
     @Published var connectionState: TerminalConnectionState = .idle
@@ -97,8 +111,10 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
     private var activeSession: SSHSessionProfile?
     private var pendingSession: SSHSessionProfile?
     private var pendingConnectedHandler: ((UUID) -> Void)?
+    private var pendingLocalShellPath: String?
     private var pendingPasswordHandler: ((String) -> Void)?
     private var transferBannerResetTask: Task<Void, Never>?
+    private var runtimeKind: TerminalRuntimeKind?
 
     init(passwordStore: SessionPasswordStore = SessionPasswordStore()) {
         self.passwordStore = passwordStore
@@ -119,12 +135,49 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
             self.pendingSession = nil
             self.pendingConnectedHandler = nil
             start(session: pendingSession, onConnected: pendingConnectedHandler)
+        } else if let pendingLocalShellPath {
+            self.pendingLocalShellPath = nil
+            startLocalShell(shellPath: pendingLocalShellPath)
         }
     }
 
     func reconnect(session: SSHSessionProfile, onConnected: @escaping (UUID) -> Void) {
         terminate()
         start(session: session, onConnected: onConnected)
+    }
+
+    func startLocalShell(shellPath: String = "/bin/zsh") {
+        guard terminalView != nil else {
+            pendingLocalShellPath = shellPath
+            runtimeKind = .local(shellPath: shellPath)
+            terminalTitle = TerminalRuntimeKind.local(shellPath: shellPath).defaultTitle
+            connectionState = .connecting
+            return
+        }
+
+        startedSessionID = nil
+        activeSession = nil
+        runtimeKind = .local(shellPath: shellPath)
+        terminalTitle = TerminalRuntimeKind.local(shellPath: shellPath).defaultTitle
+        workingDirectory = nil
+        lastExitMessage = nil
+        cancelTransferBannerReset()
+        transferState = .idle
+        hostKeyPrompt = nil
+        sftpPathPrompt = nil
+        sftpLocalSelectionRequest = nil
+        connectionState = .connecting
+        pendingLocalShellPath = nil
+
+        transport.startLocalShell(shellPath: shellPath)
+
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard let self else { return }
+            guard case .connecting = self.connectionState else { return }
+            guard self.runtimeKind == .local(shellPath: shellPath) else { return }
+            self.connectionState = .connected
+        }
     }
 
     func terminate() {
@@ -139,6 +192,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         sftpPathPrompt = nil
         sftpLocalSelectionRequest = nil
         activeSession = nil
+        pendingLocalShellPath = nil
     }
 
     static func sshArguments(
@@ -188,18 +242,24 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         cancelTransferBannerReset()
         transferState = .idle
         hostKeyPrompt = nil
+        let runtimeKind = self.runtimeKind
 
         guard let exitCode else {
-            connectionState = .failed("终端进程异常结束")
-            lastExitMessage = "终端进程异常结束"
+            let message = "\(runtimeKind?.defaultTitle ?? "终端")异常结束"
+            connectionState = .failed(message)
+            lastExitMessage = message
             return
         }
 
         if exitCode == 0 {
             connectionState = .disconnected
-            lastExitMessage = "SSH 会话已正常关闭"
+            if case .local = runtimeKind {
+                lastExitMessage = "本机终端已关闭"
+            } else {
+                lastExitMessage = "SSH 会话已正常关闭"
+            }
         } else {
-            let message = "退出码 \(exitCode)"
+            let message = "\(runtimeKind?.defaultTitle ?? "终端")退出，退出码 \(exitCode)"
             connectionState = .failed(message)
             lastExitMessage = message
         }
@@ -447,11 +507,13 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
             pendingSession = session
             pendingConnectedHandler = onConnected
             connectionState = .connecting
+            runtimeKind = .ssh(session)
             return
         }
 
         startedSessionID = session.id
         activeSession = session
+        runtimeKind = .ssh(session)
         terminalTitle = session.name
         workingDirectory = nil
         lastExitMessage = nil
@@ -745,7 +807,8 @@ extension TerminalSessionViewModel: TerminalViewDelegate {
     nonisolated func setTerminalTitle(source: TerminalView, title: String) {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            self.terminalTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "SSH 控制台" : title
+            let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.terminalTitle = trimmed.isEmpty ? (self.runtimeKind?.defaultTitle ?? "终端") : title
         }
     }
 

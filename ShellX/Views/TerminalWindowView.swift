@@ -11,7 +11,8 @@ struct TerminalWindowContainerView: View {
            let session = appModel.sessions.first(where: { $0.id == uuid }) {
             TerminalWindowView(
                 sessionModel: appModel.terminalSessionModel(for: session.id),
-                session: session
+                session: session,
+                localShellPath: nil
             )
         } else {
             ContentUnavailableView(
@@ -29,7 +30,8 @@ struct TerminalWindowView: View {
     @State private var showingErrorDetails = false
     @State private var isPresentingZModemPanel = false
 
-    let session: SSHSessionProfile
+    let session: SSHSessionProfile?
+    let localShellPath: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -49,9 +51,15 @@ struct TerminalWindowView: View {
             HStack(spacing: 12) {
                 Label(sessionModel.terminalTitle, systemImage: "terminal")
                     .font(.subheadline.weight(.medium))
-                Text("\(session.destination):\(session.port)")
-                    .foregroundStyle(.secondary)
-                    .font(.caption)
+                if let session {
+                    Text("\(session.destination):\(session.port)")
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                } else if let localShellPath {
+                    Text(localShellPath)
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                }
                 if let workingDirectory = sessionModel.workingDirectory, !workingDirectory.isEmpty {
                     Text(workingDirectory)
                         .font(.caption)
@@ -152,8 +160,12 @@ struct TerminalWindowView: View {
     }
 
     private func connect() {
-        sessionModel.reconnect(session: session) { sessionID in
-            appModel.markConnected(sessionID: sessionID)
+        if let session {
+            sessionModel.reconnect(session: session) { sessionID in
+                appModel.markConnected(sessionID: sessionID)
+            }
+        } else {
+            sessionModel.startLocalShell(shellPath: localShellPath ?? AppViewModel.defaultLocalShellPath)
         }
     }
 
