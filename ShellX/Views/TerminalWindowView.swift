@@ -23,6 +23,7 @@ struct TerminalWindowContainerView: View {
 struct TerminalWindowView: View {
     @EnvironmentObject private var appModel: AppViewModel
     @StateObject private var sessionModel = TerminalSessionViewModel()
+    @State private var showingErrorDetails = false
 
     let session: SSHSessionProfile
 
@@ -40,8 +41,26 @@ struct TerminalWindowView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Text(sessionModel.connectionState.displayText)
-                    .foregroundStyle(statusColor)
+                if case .failed = sessionModel.connectionState,
+                   let errorMessage = sessionModel.lastExitMessage ?? failureMessage {
+                    Button {
+                        showingErrorDetails = true
+                    } label: {
+                        Text(sessionModel.connectionState.displayText)
+                            .foregroundStyle(statusColor)
+                    }
+                    .buttonStyle(.plain)
+
+                    Button("复制错误") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(errorMessage, forType: .string)
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                } else {
+                    Text(sessionModel.connectionState.displayText)
+                        .foregroundStyle(statusColor)
+                }
                 Button("重连") {
                     connect()
                 }
@@ -94,6 +113,9 @@ struct TerminalWindowView: View {
                 }
             )
         }
+        .sheet(isPresented: $showingErrorDetails) {
+            ErrorDetailSheet(message: sessionModel.lastExitMessage ?? failureMessage ?? "未知错误")
+        }
     }
 
     private var statusColor: Color {
@@ -113,6 +135,13 @@ struct TerminalWindowView: View {
         sessionModel.reconnect(session: session) { sessionID in
             appModel.markConnected(sessionID: sessionID)
         }
+    }
+
+    private var failureMessage: String? {
+        if case .failed(let message) = sessionModel.connectionState {
+            return message
+        }
+        return nil
     }
 }
 
@@ -139,6 +168,41 @@ private struct ErrorBannerView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+private struct ErrorDetailSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let message: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("错误详情")
+                .font(.title2.weight(.semibold))
+
+            ScrollView {
+                Text(message)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+            }
+            .padding()
+            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+
+            HStack {
+                Spacer()
+                Button("复制错误") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(message, forType: .string)
+                }
+                Button("关闭") {
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 520, height: 320)
     }
 }
 
