@@ -1,0 +1,10 @@
+// ShellX 稳定签名配置
+// 说明：
+// 1. 将下面空白的 DEVELOPMENT_TEAM 替换为你自己的 Apple Developer Team ID。
+// 2. 将 com.example.ShellX 替换为稳定且唯一的 Bundle Identifier。
+// 3. 修改完成后，持续使用同一份签名的 .app 运行和分发，
+//    避免 Keychain 将每次调试构建视为不同应用主体。
+
+DEVELOPMENT_TEAM =
+PRODUCT_BUNDLE_IDENTIFIER = com.example.ShellX
+CODE_SIGN_STYLE = Automatic

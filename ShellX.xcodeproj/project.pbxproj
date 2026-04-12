@@ -57,6 +57,7 @@
 		100000000000000000000060 /* ShellX.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = ShellX.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		100000000000000000000061 /* ShellXTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = ShellXTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		1000000000000000000000B3 /* SFTPTransferService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SFTPTransferService.swift; sourceTree = "<group>"; };
+		1000000000000000000000C0 /* ShellX-Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = "ShellX-Signing.xcconfig"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -81,6 +82,7 @@
 		100000000000000000000080 = {
 			isa = PBXGroup;
 			children = (
+				1000000000000000000000C1 /* Config */,
 				100000000000000000000081 /* ShellX */,
 				100000000000000000000082 /* ShellXTests */,
 				100000000000000000000083 /* Products */,
@@ -173,6 +175,14 @@
 				100000000000000000000009 /* TerminalWindowView.swift */,
 			);
 			path = Views;
+			sourceTree = "<group>";
+		};
+		1000000000000000000000C1 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				1000000000000000000000C0 /* ShellX-Signing.xcconfig */,
+			);
+			path = Config;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -339,12 +349,11 @@
 /* Begin XCBuildConfiguration section */
 		1000000000000000000000A0 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1000000000000000000000C0 /* ShellX-Signing.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = ShellX;
@@ -356,7 +365,6 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.ShellX;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -366,12 +374,11 @@
 		};
 		1000000000000000000000A1 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1000000000000000000000C0 /* ShellX-Signing.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = ShellX;
@@ -383,7 +390,6 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.ShellX;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
 				SWIFT_EMIT_LOC_STRINGS = YES;
