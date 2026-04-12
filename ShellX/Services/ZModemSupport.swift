@@ -48,7 +48,8 @@ struct ZModemTriggerDetector {
     private(set) var buffer = ""
 
     mutating func consume(_ data: Data) -> ZModemTrigger? {
-        let chunk = String(decoding: data, as: UTF8.self)
+        let chunk = Self.normalizedASCII(from: data)
+        guard !chunk.isEmpty else { return nil }
         buffer.append(chunk)
         if buffer.count > maxBufferLength {
             buffer = String(buffer.suffix(maxBufferLength))
@@ -72,6 +73,20 @@ struct ZModemTriggerDetector {
 
     mutating func reset() {
         buffer.removeAll(keepingCapacity: true)
+    }
+
+    private static func normalizedASCII(from data: Data) -> String {
+        let bytes = data.filter { byte in
+            switch byte {
+            case 0x20...0x7E:
+                return true
+            case 0x0A, 0x0D, 0x09:
+                return true
+            default:
+                return false
+            }
+        }
+        return String(decoding: bytes, as: UTF8.self)
     }
 }
 

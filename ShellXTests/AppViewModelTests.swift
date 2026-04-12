@@ -238,6 +238,15 @@ final class AppViewModelTests: XCTestCase {
         XCTAssertEqual(trigger, .uploadRequest)
     }
 
+    func testZModemTriggerDetectorRecognizesUploadHandshakeWithControlBytes() {
+        var detector = ZModemTriggerDetector()
+        let data = Data([0x18, 0x18] + Array("**B0100000023be50".utf8) + [0x0D, 0x00, 0x18])
+
+        let trigger = detector.consume(data)
+
+        XCTAssertEqual(trigger, .uploadRequest)
+    }
+
     func testZModemTriggerDetectorRecognizesDownloadPrompt() {
         var detector = ZModemTriggerDetector()
         let data = Data("**B00000000000000".utf8)
