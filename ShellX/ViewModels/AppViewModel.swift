@@ -15,6 +15,7 @@ final class AppViewModel: ObservableObject {
 
     private let repository: AppStorageRepository
     private let passwordStore: SessionPasswordStore
+    private var terminalSessionModels: [UUID: TerminalSessionViewModel] = [:]
 
     init(
         repository: AppStorageRepository = AppStorageRepository(),
@@ -209,6 +210,9 @@ final class AppViewModel: ObservableObject {
     }
 
     func closeTerminal(sessionID: UUID) {
+        if let sessionModel = terminalSessionModels.removeValue(forKey: sessionID) {
+            sessionModel.terminate()
+        }
         openTerminalSessionIDs.removeAll { $0 == sessionID }
         guard activeTerminalSessionID == sessionID else { return }
 
@@ -224,6 +228,15 @@ final class AppViewModel: ObservableObject {
             return
         }
         selectedSessionID = filteredSessions.first?.id
+    }
+
+    func terminalSessionModel(for sessionID: UUID) -> TerminalSessionViewModel {
+        if let existingModel = terminalSessionModels[sessionID] {
+            return existingModel
+        }
+        let model = TerminalSessionViewModel()
+        terminalSessionModels[sessionID] = model
+        return model
     }
 
     private func buildNodes(parentID: UUID?) -> [SessionFolderNode] {

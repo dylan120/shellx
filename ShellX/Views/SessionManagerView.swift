@@ -245,14 +245,12 @@ private struct TerminalTabWorkspaceView: View {
             }
             .background(.thinMaterial)
 
-            if activeSession != nil {
-                ZStack {
-                    ForEach(appModel.openTerminalSessions) { session in
-                        TerminalWindowView(session: session)
-                            .opacity(appModel.activeTerminalSessionID == session.id ? 1 : 0)
-                            .allowsHitTesting(appModel.activeTerminalSessionID == session.id)
-                    }
-                }
+            if let activeSession {
+                TerminalWindowView(
+                    session: activeSession,
+                    sessionModel: appModel.terminalSessionModel(for: activeSession.id)
+                )
+                .id(activeSession.id)
                 .overlay(alignment: .topTrailing) {
                     if let selectedSession = appModel.selectedSession,
                        selectedSession.id != appModel.activeTerminalSessionID {

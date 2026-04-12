@@ -9,7 +9,10 @@ struct TerminalWindowContainerView: View {
         if let sessionID,
            let uuid = UUID(uuidString: sessionID),
            let session = appModel.sessions.first(where: { $0.id == uuid }) {
-            TerminalWindowView(session: session)
+            TerminalWindowView(
+                session: session,
+                sessionModel: appModel.terminalSessionModel(for: session.id)
+            )
         } else {
             ContentUnavailableView(
                 "无法打开会话",
@@ -22,7 +25,7 @@ struct TerminalWindowContainerView: View {
 
 struct TerminalWindowView: View {
     @EnvironmentObject private var appModel: AppViewModel
-    @StateObject private var sessionModel = TerminalSessionViewModel()
+    @ObservedObject var sessionModel: TerminalSessionViewModel
     @State private var showingErrorDetails = false
     @State private var isPresentingZModemPanel = false
 
@@ -88,9 +91,6 @@ struct TerminalWindowView: View {
             if case .idle = sessionModel.connectionState {
                 connect()
             }
-        }
-        .onDisappear {
-            sessionModel.terminate()
         }
         .sheet(item: $sessionModel.hostKeyPrompt) { prompt in
             HostKeyPromptSheet(
