@@ -94,6 +94,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
     @Published var terminalTitle = "SSH 控制台"
     @Published var workingDirectory: String?
     @Published var lastExitMessage: String?
+    @Published var transientBannerMessage: String?
     @Published var transferState: ZModemTransferState = .idle
     @Published var hostKeyPrompt: KnownHostPrompt?
     @Published var passwordPrompt: SSHPasswordPrompt?
@@ -115,6 +116,25 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
     private var pendingPasswordHandler: ((String) -> Void)?
     private var transferBannerResetTask: Task<Void, Never>?
     private var runtimeKind: TerminalRuntimeKind?
+
+    var bannerContent: (message: String, isError: Bool)? {
+        if let transferMessage = transferState.bannerText {
+            if case .failed = transferState {
+                return (transferMessage, true)
+            }
+            return (transferMessage, false)
+        }
+
+        if let transientBannerMessage, !transientBannerMessage.isEmpty {
+            return (transientBannerMessage, false)
+        }
+
+        if case .failed = connectionState, let lastExitMessage, !lastExitMessage.isEmpty {
+            return (lastExitMessage, true)
+        }
+
+        return nil
+    }
 
     init(passwordStore: SessionPasswordStore = SessionPasswordStore()) {
         self.passwordStore = passwordStore
@@ -161,6 +181,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         terminalTitle = TerminalRuntimeKind.local(shellPath: shellPath).defaultTitle
         workingDirectory = nil
         lastExitMessage = nil
+        transientBannerMessage = nil
         cancelTransferBannerReset()
         transferState = .idle
         hostKeyPrompt = nil
@@ -254,9 +275,11 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         if exitCode == 0 {
             connectionState = .disconnected
             if case .local = runtimeKind {
-                lastExitMessage = "本机终端已关闭"
+                lastExitMessage = nil
+                showTransientBanner("本机终端已关闭")
             } else {
-                lastExitMessage = "SSH 会话已正常关闭"
+                lastExitMessage = nil
+                showTransientBanner("SSH 会话已正常关闭")
             }
         } else {
             let message = "\(runtimeKind?.defaultTitle ?? "终端")退出，退出码 \(exitCode)"
@@ -305,7 +328,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
                 try await knownHostsService.trust(hostKeyPrompt)
                 await MainActor.run {
                     self.hostKeyPrompt = nil
-                    self.lastExitMessage = "主机指纹已写入 ShellX 的 known_hosts，正在继续连接。"
+                    self.showTransientBanner("主机指纹已写入 ShellX 的 known_hosts，正在继续连接。")
                     self.connectionState = .connecting
                     self.pendingSession = nil
                     self.pendingConnectedHandler = nil
@@ -353,13 +376,13 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
                 do {
                     try passwordStore.savePassword(trimmedPassword, for: pendingSession.id)
                 } catch {
-                    lastExitMessage = "保存到系统 Keychain 失败：\(error.localizedDescription)。本次连接仍会继续，并在当前运行期间复用已输入密码。"
+                    showTransientBanner("保存到系统 Keychain 失败：\(error.localizedDescription)。本次连接仍会继续，并在当前运行期间复用已输入密码。", delaySeconds: 5)
                 }
             }
         }
 
         passwordPrompt = nil
-        lastExitMessage = "正在使用本次输入的密码继续连接。"
+        showTransientBanner("正在使用本次输入的密码继续连接。")
         connectionState = .connecting
         self.pendingSession = nil
         self.pendingConnectedHandler = nil
@@ -370,8 +393,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         if pendingPasswordHandler != nil {
             passwordPrompt = nil
             pendingPasswordHandler = nil
-            lastExitMessage = "已取消 SFTP 密码输入。"
-            scheduleTransferBannerReset(message: "已取消 SFTP 密码输入。")
+            showTransientBanner("已取消 SFTP 密码输入。")
             return
         }
         passwordPrompt = nil
@@ -386,7 +408,6 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         case .success(let fileURL):
             cancelTransferBannerReset()
             transferState = .transferring(.uploadToRemote)
-            lastExitMessage = "已选择文件，正在上传到远端。"
             transport.startUpload(from: fileURL)
         case .failure:
             transport.cancelTransfer(sendCancel: true)
@@ -402,7 +423,6 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         case .success(let directoryURL):
             cancelTransferBannerReset()
             transferState = .transferring(.downloadFromRemote)
-            lastExitMessage = "已选择接收目录，正在从远端下载。"
             transport.startDownload(to: directoryURL)
         case .failure:
             transport.cancelTransfer(sendCancel: true)
@@ -415,17 +435,17 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
 
     func requestSFTPUpload() {
         guard case .connected = connectionState else {
-            lastExitMessage = "只有已连接的会话才能发起 SFTP 传输。"
+            showTransientBanner("只有已连接的会话才能发起 SFTP 传输。")
             return
         }
         cancelTransferBannerReset()
-        lastExitMessage = "正在选择要通过 SFTP 上传的本地文件或文件夹。"
+        showTransientBanner("正在选择要通过 SFTP 上传的本地文件或文件夹。")
         sftpLocalSelectionRequest = .uploadSource
     }
 
     func requestSFTPDownloadFile() {
         guard case .connected = connectionState else {
-            lastExitMessage = "只有已连接的会话才能发起 SFTP 传输。"
+            showTransientBanner("只有已连接的会话才能发起 SFTP 传输。")
             return
         }
         sftpPathPrompt = SFTPPathPrompt(
@@ -439,7 +459,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
 
     func requestSFTPDownloadDirectory() {
         guard case .connected = connectionState else {
-            lastExitMessage = "只有已连接的会话才能发起 SFTP 传输。"
+            showTransientBanner("只有已连接的会话才能发起 SFTP 传输。")
             return
         }
         sftpPathPrompt = SFTPPathPrompt(
@@ -475,8 +495,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
                 }
             }
         case .failure:
-            lastExitMessage = "已取消 SFTP 路径选择。"
-            scheduleTransferBannerReset(message: "已取消 SFTP 路径选择。")
+            showTransientBanner("已取消 SFTP 路径选择。")
         }
     }
 
@@ -488,18 +507,17 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         case .upload(let localURL):
             beginSFTPUpload(localURL: localURL, remoteDirectory: trimmedPath)
         case .downloadFile:
-            lastExitMessage = "正在选择 SFTP 下载目标目录。"
+            showTransientBanner("正在选择 SFTP 下载目标目录。")
             sftpLocalSelectionRequest = .downloadDestination(remotePath: trimmedPath, recursive: false)
         case .downloadDirectory:
-            lastExitMessage = "正在选择 SFTP 下载目标目录。"
+            showTransientBanner("正在选择 SFTP 下载目标目录。")
             sftpLocalSelectionRequest = .downloadDestination(remotePath: trimmedPath, recursive: true)
         }
     }
 
     func handleSFTPPathPromptCancel() {
         sftpPathPrompt = nil
-        lastExitMessage = "已取消 SFTP 传输。"
-        scheduleTransferBannerReset(message: "已取消 SFTP 传输。")
+        showTransientBanner("已取消 SFTP 传输。")
     }
 
     private func start(session: SSHSessionProfile, onConnected: @escaping (UUID) -> Void) {
@@ -517,6 +535,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         terminalTitle = session.name
         workingDirectory = nil
         lastExitMessage = nil
+        transientBannerMessage = nil
         cancelTransferBannerReset()
         transferState = .idle
         connectionState = .connecting
@@ -545,7 +564,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
                         self.connectionState = .failed("检测到主机指纹变更，请先在弹窗中带外确认后再决定是否替换。")
                     } else if prompt.kind == .updated {
                         self.connectionState = .connecting
-                        self.lastExitMessage = "检测到主机可用指纹集合已变化，请确认后更新本地 known_hosts。"
+                        self.showTransientBanner("检测到主机可用指纹集合已变化，请确认后更新本地 known_hosts。", delaySeconds: 5)
                     } else {
                         self.connectionState = .connecting
                     }
@@ -660,13 +679,13 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
 
     private func handleUploadTrigger() {
         cancelTransferBannerReset()
-        lastExitMessage = "已检测到 rz 上传请求，正在打开本地文件选择窗口。"
+        transientBannerMessage = nil
         zmodemSelectionRequest = .upload
     }
 
     private func handleDownloadTrigger() {
         cancelTransferBannerReset()
-        lastExitMessage = "已检测到 sz 下载请求，正在打开保存目录选择窗口。"
+        transientBannerMessage = nil
         zmodemSelectionRequest = .download
     }
 
@@ -707,8 +726,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
                 password: passwordOverride
             )
         } catch {
-            lastExitMessage = "启动 SFTP 失败：\(error.localizedDescription)"
-            scheduleTransferBannerReset(message: "启动 SFTP 失败：\(error.localizedDescription)")
+            showTransientBanner("启动 SFTP 失败：\(error.localizedDescription)", delaySeconds: 5)
         }
     }
 
@@ -733,7 +751,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
                     return
                 }
             } catch {
-                lastExitMessage = "读取系统 Keychain 中的密码失败：\(error.localizedDescription)。请先输入本次传输密码。"
+                showTransientBanner("读取系统 Keychain 中的密码失败：\(error.localizedDescription)。请先输入本次传输密码。", delaySeconds: 5)
             }
         }
 
@@ -748,7 +766,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
                 do {
                     try self.passwordStore.savePassword(password, for: session.id)
                 } catch {
-                    self.lastExitMessage = "保存到系统 Keychain 失败：\(error.localizedDescription)。本次 SFTP 传输仍会继续。"
+                    self.showTransientBanner("保存到系统 Keychain 失败：\(error.localizedDescription)。本次 SFTP 传输仍会继续。", delaySeconds: 5)
                 }
             }
             onResolved(password)
@@ -764,6 +782,9 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         transferBannerResetTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(delaySeconds))
             guard let self else { return }
+            if self.transientBannerMessage == message {
+                self.transientBannerMessage = nil
+            }
             if self.lastExitMessage == message {
                 self.lastExitMessage = nil
             }
@@ -781,19 +802,23 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         transferBannerResetTask = nil
     }
 
+    // 普通提示与错误分流：临时提示走这里并自动消失，真正错误仍保留在 lastExitMessage。
+    private func showTransientBanner(_ message: String, delaySeconds: Double = 3) {
+        transientBannerMessage = message
+        scheduleTransferBannerReset(message: message, delaySeconds: delaySeconds)
+    }
+
     func sftpTransferDidStart(message: String) {
         cancelTransferBannerReset()
-        lastExitMessage = message
+        showTransientBanner(message)
     }
 
     func sftpTransferDidComplete(message: String) {
-        lastExitMessage = message
-        scheduleTransferBannerReset(message: message)
+        showTransientBanner(message)
     }
 
     func sftpTransferDidFail(message: String) {
-        lastExitMessage = message
-        scheduleTransferBannerReset(message: message, delaySeconds: 5)
+        showTransientBanner(message, delaySeconds: 5)
     }
 }
 

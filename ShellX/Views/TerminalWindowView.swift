@@ -39,11 +39,8 @@ struct TerminalWindowView: View {
                 SwiftTermTerminalView(sessionModel: sessionModel)
                     .background(Color(nsColor: .textBackgroundColor))
 
-                if let bannerText = sessionModel.transferState.bannerText ?? sessionModel.lastExitMessage,
-                   sessionModel.connectionState != .connected
-                    || sessionModel.transferState != .idle
-                    || sessionModel.lastExitMessage != nil {
-                    ErrorBannerView(message: bannerText)
+                if let banner = sessionModel.bannerContent {
+                    ErrorBannerView(message: banner.message, isError: banner.isError)
                         .padding(12)
                 }
             }
@@ -259,17 +256,18 @@ struct TerminalWindowView: View {
 
 private struct ErrorBannerView: View {
     let message: String
+    let isError: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(message)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(isError ? .red : .secondary)
                 .textSelection(.enabled)
 
             HStack {
                 Spacer()
-                Button("复制错误") {
+                Button(isError ? "复制错误" : "复制内容") {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(message, forType: .string)
                 }
