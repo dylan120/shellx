@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SessionManagerView: View {
     enum ActiveSheet: Identifiable {
@@ -169,6 +170,7 @@ struct SessionManagerView: View {
 
 private struct TerminalTabWorkspaceView: View {
     @EnvironmentObject private var appModel: AppViewModel
+    @State private var draggedTabID: UUID?
 
     let onClose: (UUID) -> Void
 
@@ -208,6 +210,18 @@ private struct TerminalTabWorkspaceView: View {
                         .onTapGesture {
                             appModel.activateTerminal(tabID: tab.id)
                         }
+                        .onDrag {
+                            draggedTabID = tab.id
+                            return NSItemProvider(object: tab.id.uuidString as NSString)
+                        }
+                        .onDrop(
+                            of: [UTType.plainText.identifier],
+                            delegate: TerminalTabDropDelegate(
+                                targetTabID: tab.id,
+                                draggedTabID: $draggedTabID,
+                                appModel: appModel
+                            )
+                        )
                         .help("右击显示标签操作")
                         .contextMenu {
                             Button("切换到此标签") {
@@ -328,6 +342,26 @@ private struct TerminalTabWorkspaceView: View {
         case .ssh:
             return "复制会话到新标签"
         }
+    }
+}
+
+private struct TerminalTabDropDelegate: DropDelegate {
+    let targetTabID: UUID
+    @Binding var draggedTabID: UUID?
+    let appModel: AppViewModel
+
+    func dropEntered(info: DropInfo) {
+        guard let draggedTabID else { return }
+        appModel.moveTerminalTab(draggedTabID: draggedTabID, to: targetTabID)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        draggedTabID = nil
+        return true
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
     }
 }
 

@@ -359,6 +359,19 @@ final class AppViewModel: ObservableObject {
         syncSelectionToActiveTerminalTab()
     }
 
+    func moveTerminalTab(draggedTabID: UUID, to targetTabID: UUID) {
+        guard draggedTabID != targetTabID,
+              let sourceIndex = terminalTabs.firstIndex(where: { $0.id == draggedTabID }),
+              let destinationIndex = terminalTabs.firstIndex(where: { $0.id == targetTabID }) else {
+            return
+        }
+
+        let draggedTab = terminalTabs.remove(at: sourceIndex)
+        // 右移时，先 remove 会导致目标索引左移一位，这里需要做一次修正。
+        let adjustedDestinationIndex = sourceIndex < destinationIndex ? destinationIndex - 1 : destinationIndex
+        terminalTabs.insert(draggedTab, at: adjustedDestinationIndex)
+    }
+
     func sourceSessionID(for tabID: UUID) -> UUID? {
         guard let tab = terminalTabs.first(where: { $0.id == tabID }) else { return nil }
         if case .ssh(let sessionID) = tab.kind {
