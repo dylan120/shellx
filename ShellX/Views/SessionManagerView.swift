@@ -229,14 +229,22 @@ private struct TerminalTabWorkspaceView: View {
                                 sessionModel.terminate()
                             }
                             Button("复制调试") {
+                                let passwordStoreDebug = SessionPasswordStore.debugSnapshot()
+                                let debugText = [
+                                    passwordStoreDebug.isEmpty ? nil : passwordStoreDebug,
+                                    sessionModel.terminalDebugSnapshot.isEmpty ? nil : sessionModel.terminalDebugSnapshot
+                                ]
+                                .compactMap { $0 }
+                                .joined(separator: "\n\n")
                                 NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(sessionModel.terminalDebugSnapshot, forType: .string)
+                                NSPasteboard.general.setString(debugText, forType: .string)
                             }
-                            .disabled(sessionModel.terminalDebugSnapshot.isEmpty)
+                            .disabled(SessionPasswordStore.debugSnapshot().isEmpty && sessionModel.terminalDebugSnapshot.isEmpty)
                             Button("清空调试") {
                                 sessionModel.clearTerminalDebugSnapshot()
+                                SessionPasswordStore.clearDebugSnapshot()
                             }
-                            .disabled(sessionModel.terminalDebugSnapshot.isEmpty)
+                            .disabled(SessionPasswordStore.debugSnapshot().isEmpty && sessionModel.terminalDebugSnapshot.isEmpty)
                             Divider()
                             Button("关闭标签") {
                                 onClose(session.id)
