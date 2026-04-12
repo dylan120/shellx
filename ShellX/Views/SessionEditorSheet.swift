@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct SessionEditorSubmission {
@@ -11,6 +12,7 @@ struct SessionEditorSheet: View {
 
     @State private var draft: SSHSessionProfile
     @State private var password = ""
+    @State private var privateKeySelectionError: String?
     let title: String
     let onSave: (SessionEditorSubmission) -> Void
 
@@ -42,7 +44,39 @@ struct SessionEditorSheet: View {
                 }
 
                 if draft.authMethod == .privateKey {
-                    TextField("私钥路径", text: $draft.privateKeyPath)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("私钥文件")
+                            .font(.subheadline)
+
+                        HStack(spacing: 8) {
+                            Text(draft.privateKeyPath.isEmpty ? "尚未选择私钥文件" : draft.privateKeyPath)
+                                .foregroundStyle(draft.privateKeyPath.isEmpty ? .secondary : .primary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+
+                            Spacer(minLength: 0)
+
+                            Button("选择文件") {
+                                selectPrivateKeyFile()
+                            }
+
+                            if !draft.privateKeyPath.isEmpty {
+                                Button("清空") {
+                                    draft.privateKeyPath = ""
+                                }
+                            }
+                        }
+
+                        Text("请选择本机上的私钥文件，ShellX 会使用该文件路径调用系统 ssh。")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+
+                        if let privateKeySelectionError {
+                            Text(privateKeySelectionError)
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                        }
+                    }
                     Toggle("将私钥口令交给系统 Keychain 管理", isOn: $draft.useKeychainForPrivateKey)
                 }
 
@@ -112,6 +146,34 @@ struct SessionEditorSheet: View {
             return "密码会尝试保存到系统 Keychain；留空可保持原密码不变。若 Keychain 访问失败，连接时仍可改为手动输入本次密码。"
         }
         return "关闭后不会保存到系统 Keychain。连接时会提示输入本次密码，不会写入 ShellX 的 sessions.json。"
+    }
+
+    private func selectPrivateKeyFile() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.canCreateDirectories = false
+        panel.resolvesAliases = true
+        panel.showsHiddenFiles = true
+        panel.prompt = "选择"
+        panel.message = "选择要用于 SSH 认证的私钥文件"
+        if !draft.privateKeyPath.isEmpty {
+            panel.directoryURL = URL(fileURLWithPath: (draft.privateKeyPath as NSString).expandingTildeInPath).deletingLastPathComponent()
+        }
+
+        let response = panel.runModal()
+        guard response == .OK, let url = panel.url else {
+            return
+        }
+
+        guard url.isFileURL else {
+            privateKeySelectionError = "选择的私钥路径无效，请重新选择本地文件。"
+            return
+        }
+
+        privateKeySelectionError = nil
+        draft.privateKeyPath = url.path
     }
 }
 

@@ -31,6 +31,10 @@ struct SessionManagerView: View {
                 onAddSubfolder: { parent in
                     activeSheet = .createFolder(parent)
                 },
+                onAddSession: { parent in
+                    appModel.selectedFolderID = parent?.id
+                    activeSheet = .createSession
+                },
                 onRenameFolder: { folder in
                     activeSheet = .editFolder(folder)
                 },

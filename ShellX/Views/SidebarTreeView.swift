@@ -3,6 +3,7 @@ import SwiftUI
 struct SidebarTreeView: View {
     @EnvironmentObject private var appModel: AppViewModel
     let onAddSubfolder: (SessionFolder?) -> Void
+    let onAddSession: (SessionFolder?) -> Void
     let onRenameFolder: (SessionFolder) -> Void
     let onDeleteFolder: (SessionFolder) -> Void
     let onEditSession: (SSHSessionProfile) -> Void
@@ -19,6 +20,7 @@ struct SidebarTreeView: View {
                     FolderBranchView(
                         node: node,
                         onAddSubfolder: onAddSubfolder,
+                        onAddSession: onAddSession,
                         onRenameFolder: onRenameFolder,
                         onDeleteFolder: onDeleteFolder,
                         onEditSession: onEditSession,
@@ -73,6 +75,7 @@ private struct FolderBranchView: View {
     @EnvironmentObject private var appModel: AppViewModel
     let node: SessionFolderNode
     let onAddSubfolder: (SessionFolder?) -> Void
+    let onAddSession: (SessionFolder?) -> Void
     let onRenameFolder: (SessionFolder) -> Void
     let onDeleteFolder: (SessionFolder) -> Void
     let onEditSession: (SSHSessionProfile) -> Void
@@ -107,6 +110,7 @@ private struct FolderBranchView: View {
                 FolderBranchView(
                     node: child,
                     onAddSubfolder: onAddSubfolder,
+                    onAddSession: onAddSession,
                     onRenameFolder: onRenameFolder,
                     onDeleteFolder: onDeleteFolder,
                     onEditSession: onEditSession,
@@ -131,9 +135,13 @@ private struct FolderBranchView: View {
                 appModel.syncSelectionToVisibleSessions()
             }
             .contextMenu {
+                Button("新建会话") {
+                    onAddSession(node.folder)
+                }
                 Button("新建子文件夹") {
                     onAddSubfolder(node.folder)
                 }
+                Divider()
                 Button("重命名") {
                     onRenameFolder(node.folder)
                 }
