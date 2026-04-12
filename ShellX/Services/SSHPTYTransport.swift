@@ -6,6 +6,7 @@ protocol SSHPTYTransportDelegate: AnyObject {
     func transportDidReceive(_ data: Data)
     func transportDidTerminate(exitCode: Int32?)
     func transportDidDetectZModem(_ trigger: ZModemTrigger)
+    func transportDidRequestPassword()
     func transportDidFail(_ message: String)
     func transportDidUpdateDebugSnapshot(_ snapshot: String)
 }
@@ -32,6 +33,7 @@ final class SSHPTYTransport {
     private var pendingPassword: String?
     private var authTranscript = ""
     private var didSendPassword = false
+    private var didRequestPasswordResolution = false
     private var lastWindowSize: (cols: Int, rows: Int)?
     private var debugTranscript = ""
     private let maxDebugTranscriptLength = 65536
@@ -89,6 +91,7 @@ final class SSHPTYTransport {
         pendingPassword = password
         authTranscript = ""
         didSendPassword = false
+        didRequestPasswordResolution = false
 
         var windowSize = winsize(ws_row: 40, ws_col: 120, ws_xpixel: 0, ws_ypixel: 0)
         var fd: Int32 = -1
@@ -247,6 +250,7 @@ final class SSHPTYTransport {
         pendingPassword = nil
         authTranscript = ""
         didSendPassword = false
+        didRequestPasswordResolution = false
         lastWindowSize = nil
         debugTranscript.removeAll(keepingCapacity: true)
     }
@@ -263,8 +267,15 @@ final class SSHPTYTransport {
 
         let data = Data(buffer.prefix(bytesRead))
         updateDebugTranscript(with: data)
-        if shouldAutoFillPassword(from: data) {
-            sendPasswordIfNeeded()
+        if shouldHandlePasswordPrompt(from: data) {
+            if pendingPassword != nil {
+                sendPasswordIfNeeded()
+            } else if !didRequestPasswordResolution {
+                didRequestPasswordResolution = true
+                notifyDelegate { delegate in
+                    delegate.transportDidRequestPassword()
+                }
+            }
         }
 
         if let helperStdIn {
@@ -431,6 +442,7 @@ final class SSHPTYTransport {
         pendingPassword = nil
         authTranscript = ""
         didSendPassword = false
+        didRequestPasswordResolution = false
 
         let direction = transferDirection
         transferDirection = nil
@@ -461,9 +473,8 @@ final class SSHPTYTransport {
         waitSource = nil
     }
 
-    private func shouldAutoFillPassword(from data: Data) -> Bool {
-        guard pendingPassword != nil, !didSendPassword else { return false }
-
+    private func shouldHandlePasswordPrompt(from data: Data) -> Bool {
+        guard !didSendPassword else { return false }
         let chunk = String(decoding: data, as: UTF8.self)
         guard !chunk.isEmpty else { return false }
 
@@ -483,6 +494,17 @@ final class SSHPTYTransport {
         send(Data((pendingPassword + "\n").utf8), trackAsUserInput: false)
         didSendPassword = true
         self.pendingPassword = nil
+        didRequestPasswordResolution = false
+    }
+
+    func providePassword(_ password: String) {
+        guard !password.isEmpty else { return }
+        pendingPassword = password
+        if authTranscript.contains("password:")
+            || authTranscript.contains("密码:")
+            || authTranscript.contains("密码：") {
+            sendPasswordIfNeeded()
+        }
     }
 
     private func updateDebugTranscript(with data: Data) {

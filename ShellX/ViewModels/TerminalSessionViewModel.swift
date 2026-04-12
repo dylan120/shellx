@@ -74,6 +74,11 @@ enum SFTPLocalSelectionRequest: Identifiable, Equatable {
     }
 }
 
+private enum PasswordPromptPurpose {
+    case sshConnection
+    case sftpTransfer
+}
+
 private enum TerminalRuntimeKind: Equatable {
     case ssh(SSHSessionProfile)
     case local(shellPath: String)
@@ -114,6 +119,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
     private var pendingConnectedHandler: ((UUID) -> Void)?
     private var pendingLocalShellPath: String?
     private var pendingPasswordHandler: ((String) -> Void)?
+    private var passwordPromptPurpose: PasswordPromptPurpose?
     private var transferBannerResetTask: Task<Void, Never>?
     private var runtimeKind: TerminalRuntimeKind?
 
@@ -185,6 +191,8 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         cancelTransferBannerReset()
         transferState = .idle
         hostKeyPrompt = nil
+        passwordPrompt = nil
+        passwordPromptPurpose = nil
         sftpPathPrompt = nil
         sftpLocalSelectionRequest = nil
         connectionState = .connecting
@@ -210,6 +218,8 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         }
         transferState = .idle
         hostKeyPrompt = nil
+        passwordPrompt = nil
+        passwordPromptPurpose = nil
         sftpPathPrompt = nil
         sftpLocalSelectionRequest = nil
         activeSession = nil
@@ -299,6 +309,36 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         }
     }
 
+    func transportDidRequestPassword() {
+        guard let session = activeSession, session.authMethod == .password else { return }
+
+        if let cachedPassword = passwordStore.cachedPassword(for: session.id), !cachedPassword.isEmpty {
+            transport.providePassword(cachedPassword)
+            showTransientBanner("已从当前运行缓存中读取 SSH 密码，正在继续认证。")
+            return
+        }
+
+        if session.passwordStoredInKeychain {
+            do {
+                if let storedPassword = try passwordStore.loadPassword(for: session.id), !storedPassword.isEmpty {
+                    passwordStore.cachePassword(storedPassword, for: session.id)
+                    transport.providePassword(storedPassword)
+                    showTransientBanner("已从系统 Keychain 读取 SSH 密码，正在继续认证。")
+                    return
+                }
+            } catch {
+                showTransientBanner("读取系统 Keychain 中的密码失败：\(error.localizedDescription)。请改为输入本次连接密码。", delaySeconds: 5)
+            }
+        }
+
+        passwordPromptPurpose = .sshConnection
+        passwordPrompt = SSHPasswordPrompt(
+            sessionName: session.name,
+            message: "远端已请求 SSH 密码。请输入本次连接密码。若当前会话开启了“保存到系统 Keychain”，ShellX 会在本次输入后重新写入，后续连接可直接复用。"
+        )
+        connectionState = .failed("请先输入本次连接密码。")
+    }
+
     func transportDidFail(_ message: String) {
         if message.contains("完成") {
             transferState = .completed(message)
@@ -362,7 +402,26 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         if let pendingPasswordHandler {
             passwordPrompt = nil
             self.pendingPasswordHandler = nil
+            passwordPromptPurpose = nil
             pendingPasswordHandler(trimmedPassword)
+            return
+        }
+
+        if passwordPromptPurpose == .sshConnection, let activeSession, activeSession.authMethod == .password {
+            passwordStore.cachePassword(trimmedPassword, for: activeSession.id)
+            if activeSession.passwordStoredInKeychain {
+                do {
+                    try passwordStore.savePassword(trimmedPassword, for: activeSession.id)
+                } catch {
+                    showTransientBanner("保存到系统 Keychain 失败：\(error.localizedDescription)。本次连接仍会继续，并在当前运行期间复用已输入密码。", delaySeconds: 5)
+                }
+            }
+
+            passwordPrompt = nil
+            passwordPromptPurpose = nil
+            showTransientBanner("正在使用本次输入的密码继续连接。")
+            connectionState = .connecting
+            transport.providePassword(trimmedPassword)
             return
         }
 
@@ -382,6 +441,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         }
 
         passwordPrompt = nil
+        passwordPromptPurpose = nil
         showTransientBanner("正在使用本次输入的密码继续连接。")
         connectionState = .connecting
         self.pendingSession = nil
@@ -393,11 +453,20 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         if pendingPasswordHandler != nil {
             passwordPrompt = nil
             pendingPasswordHandler = nil
+            passwordPromptPurpose = nil
             showTransientBanner("已取消 SFTP 密码输入。")
+            return
+        }
+        if passwordPromptPurpose == .sshConnection {
+            passwordPrompt = nil
+            passwordPromptPurpose = nil
+            transport.terminate()
+            connectionState = .failed("已取消密码输入")
             return
         }
         passwordPrompt = nil
         pendingPasswordHandler = nil
+        passwordPromptPurpose = nil
         pendingSession = nil
         pendingConnectedHandler = nil
         connectionState = .failed("已取消密码输入")
@@ -542,6 +611,8 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         pendingSession = nil
         pendingConnectedHandler = nil
         hostKeyPrompt = nil
+        passwordPrompt = nil
+        passwordPromptPurpose = nil
 
         Task {
             await prepareAndStart(session: session, onConnected: onConnected)
@@ -584,47 +655,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         knownHostsPathOverride: String? = nil,
         strictHostKeyCheckingOverride: String? = nil
     ) {
-        let password: String?
-        if session.authMethod == .password {
-            if let passwordOverride, !passwordOverride.isEmpty {
-                password = passwordOverride
-            } else if session.passwordStoredInKeychain {
-                do {
-                    password = try passwordStore.loadPassword(for: session.id)
-                } catch {
-                    passwordPrompt = SSHPasswordPrompt(
-                        sessionName: session.name,
-                        message: "读取系统 Keychain 中的密码失败：\(error.localizedDescription)\n\n请输入本次连接密码；如果该会话开启了“保存到系统 Keychain”，ShellX 会在本次输入后重新写入。"
-                    )
-                    pendingSession = session
-                    pendingConnectedHandler = onConnected
-                    connectionState = .failed("无法读取系统 Keychain，请先输入本次连接密码。")
-                    return
-                }
-
-                if password?.isEmpty != false {
-                    passwordPrompt = SSHPasswordPrompt(
-                        sessionName: session.name,
-                        message: "当前会话尚未保存密码。请输入一次本次连接密码；如果该会话开启了“保存到系统 Keychain”，ShellX 会在本次输入后写入，后续重启应用也可直接连接。"
-                    )
-                    pendingSession = session
-                    pendingConnectedHandler = onConnected
-                    connectionState = .failed("请先输入本次连接密码。")
-                    return
-                }
-            } else {
-                passwordPrompt = SSHPasswordPrompt(
-                    sessionName: session.name,
-                    message: "该会话未保存 SSH 密码，请输入本次连接密码。"
-                )
-                pendingSession = session
-                pendingConnectedHandler = onConnected
-                connectionState = .failed("请先输入本次连接密码。")
-                return
-            }
-        } else {
-            password = nil
-        }
+        let password = session.authMethod == .password ? passwordOverride : nil
 
         do {
             let knownHostsPath = if let knownHostsPathOverride {
@@ -759,6 +790,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
             sessionName: session.name,
             message: "当前 SFTP 传输需要 SSH 密码。请输入一次本次传输密码；如果该会话开启了“保存到系统 Keychain”，ShellX 会在本次输入后重新写入。"
         )
+        passwordPromptPurpose = .sftpTransfer
         pendingPasswordHandler = { [weak self] password in
             guard let self else { return }
             self.passwordStore.cachePassword(password, for: session.id)
