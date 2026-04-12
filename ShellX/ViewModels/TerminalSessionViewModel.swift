@@ -201,6 +201,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
         guard let hostKeyPrompt, let pendingSession, let pendingConnectedHandler else { return }
         Task {
             do {
+                let temporaryKnownHostsPath = try KnownHostsService.temporaryKnownHostsFilePath(for: hostKeyPrompt)
                 try await knownHostsService.trust(hostKeyPrompt)
                 await MainActor.run {
                     self.hostKeyPrompt = nil
@@ -208,7 +209,11 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
                     self.connectionState = .connecting
                     self.pendingSession = nil
                     self.pendingConnectedHandler = nil
-                    self.startTransport(session: pendingSession, onConnected: pendingConnectedHandler)
+                    self.startTransport(
+                        session: pendingSession,
+                        onConnected: pendingConnectedHandler,
+                        knownHostsPathOverride: temporaryKnownHostsPath
+                    )
                 }
             } catch {
                 await MainActor.run {
@@ -302,7 +307,8 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
     private func startTransport(
         session: SSHSessionProfile,
         onConnected: @escaping (UUID) -> Void,
-        passwordOverride: String? = nil
+        passwordOverride: String? = nil,
+        knownHostsPathOverride: String? = nil
     ) {
         let password: String?
         if session.authMethod == .password {
@@ -346,7 +352,11 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
         }
 
         do {
-            let knownHostsPath = try KnownHostsService.defaultKnownHostsFilePath()
+            let knownHostsPath = if let knownHostsPathOverride {
+                knownHostsPathOverride
+            } else {
+                try KnownHostsService.defaultKnownHostsFilePath()
+            }
             transport.start(
                 arguments: Self.sshArguments(for: session, userKnownHostsPath: knownHostsPath),
                 password: password

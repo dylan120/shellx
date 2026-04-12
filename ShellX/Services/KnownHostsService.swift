@@ -115,6 +115,22 @@ actor KnownHostsService {
             .path
     }
 
+    nonisolated static func temporaryKnownHostsFilePath(for prompt: KnownHostPrompt) throws -> String {
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory
+            .appendingPathComponent("ShellX", isDirectory: true)
+            .appendingPathComponent("KnownHosts", isDirectory: true)
+        if !fileManager.fileExists(atPath: directoryURL.path) {
+            try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        }
+
+        let fileURL = directoryURL.appendingPathComponent("\(prompt.host)-\(prompt.port)-\(prompt.id.uuidString).known_hosts")
+        let content = prompt.scannedLines.joined(separator: "\n") + "\n"
+        try content.write(to: fileURL, atomically: true, encoding: .utf8)
+        try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+        return fileURL.path
+    }
+
     private func trustedLines(for host: String, port: Int) throws -> [String] {
         let fileURL = try knownHostsFileURL()
         guard fileManager.fileExists(atPath: fileURL.path) else {
