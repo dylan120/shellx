@@ -1,6 +1,5 @@
 import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct TerminalWindowContainerView: View {
     @EnvironmentObject private var appModel: AppViewModel
@@ -114,51 +113,9 @@ struct TerminalWindowView: View {
                 }
             )
         }
-        .fileImporter(
-            isPresented: Binding(
-                get: { sessionModel.zmodemSelectionRequest == .upload },
-                set: { isPresented in
-                    if !isPresented, sessionModel.zmodemSelectionRequest == .upload {
-                        sessionModel.handleUploadSelection(.failure(CocoaError(.userCancelled)))
-                    }
-                }
-            ),
-            allowedContentTypes: [.data],
-            allowsMultipleSelection: false
-        ) { result in
-            switch result {
-            case .success(let urls):
-                if let fileURL = urls.first {
-                    sessionModel.handleUploadSelection(.success(fileURL))
-                } else {
-                    sessionModel.handleUploadSelection(.failure(CocoaError(.fileNoSuchFile)))
-                }
-            case .failure(let error):
-                sessionModel.handleUploadSelection(.failure(error))
-            }
-        }
-        .fileImporter(
-            isPresented: Binding(
-                get: { sessionModel.zmodemSelectionRequest == .download },
-                set: { isPresented in
-                    if !isPresented, sessionModel.zmodemSelectionRequest == .download {
-                        sessionModel.handleDownloadSelection(.failure(CocoaError(.userCancelled)))
-                    }
-                }
-            ),
-            allowedContentTypes: [.folder],
-            allowsMultipleSelection: false
-        ) { result in
-            switch result {
-            case .success(let urls):
-                if let directoryURL = urls.first {
-                    sessionModel.handleDownloadSelection(.success(directoryURL))
-                } else {
-                    sessionModel.handleDownloadSelection(.failure(CocoaError(.fileNoSuchFile)))
-                }
-            case .failure(let error):
-                sessionModel.handleDownloadSelection(.failure(error))
-            }
+        .onChange(of: sessionModel.zmodemSelectionRequest) { request in
+            guard let request else { return }
+            presentZModemSelection(request)
         }
         .sheet(isPresented: $showingErrorDetails) {
             ErrorDetailSheet(message: sessionModel.lastExitMessage ?? failureMessage ?? "未知错误")
@@ -189,6 +146,47 @@ struct TerminalWindowView: View {
             return message
         }
         return nil
+    }
+
+    @MainActor
+    private func presentZModemSelection(_ request: ZModemSelectionRequest) {
+        NSApp.activate(ignoringOtherApps: true)
+
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = request == .download
+        panel.canChooseFiles = request == .upload
+        panel.canChooseDirectories = request == .download
+        panel.resolvesAliases = true
+        panel.message = request == .upload ? "选择要上传到远端的本地文件" : "选择接收远端文件的本地目录"
+        panel.prompt = request == .upload ? "上传" : "选择目录"
+
+        let handleResult: (NSApplication.ModalResponse) -> Void = { response in
+            if response == .OK, let url = panel.url {
+                switch request {
+                case .upload:
+                    sessionModel.handleUploadSelection(.success(url))
+                case .download:
+                    sessionModel.handleDownloadSelection(.success(url))
+                }
+            } else {
+                switch request {
+                case .upload:
+                    sessionModel.handleUploadSelection(.failure(CocoaError(.userCancelled)))
+                case .download:
+                    sessionModel.handleDownloadSelection(.failure(CocoaError(.userCancelled)))
+                }
+            }
+        }
+
+        // 终端标签页在主窗口内时，优先以 sheet 挂到当前窗口，避免文件选择器在后台或不显示。
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            window.beginSheet(panel) { response in
+                handleResult(response)
+            }
+        } else {
+            handleResult(panel.runModal())
+        }
     }
 }
 
