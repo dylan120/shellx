@@ -209,6 +209,8 @@ private struct TerminalTabWorkspaceView: View {
                             appModel.activeTerminalSessionID = tab.id
                             if case .ssh(let session) = tab.kind {
                                 appModel.selectedSessionID = session.id
+                            } else {
+                                appModel.selectedSessionID = nil
                             }
                         }
                         .help("右击显示标签操作")
@@ -217,6 +219,8 @@ private struct TerminalTabWorkspaceView: View {
                                 appModel.activeTerminalSessionID = tab.id
                                 if case .ssh(let session) = tab.kind {
                                     appModel.selectedSessionID = session.id
+                                } else {
+                                    appModel.selectedSessionID = nil
                                 }
                             }
                             Divider()
@@ -224,6 +228,7 @@ private struct TerminalTabWorkspaceView: View {
                                 appModel.activeTerminalSessionID = tab.id
                                 switch tab.kind {
                                 case .local(let shellPath):
+                                    appModel.selectedSessionID = nil
                                     sessionModel.startLocalShell(shellPath: shellPath)
                                 case .ssh(let session):
                                     appModel.selectedSessionID = session.id
@@ -290,7 +295,7 @@ private struct TerminalTabWorkspaceView: View {
             .background(.thinMaterial)
 
             if !appModel.openTerminalTabs.isEmpty {
-                ZStack(alignment: .topTrailing) {
+                ZStack {
                     ForEach(appModel.openTerminalTabs) { tab in
                         switch tab.kind {
                         case .local(let shellPath):
@@ -312,16 +317,6 @@ private struct TerminalTabWorkspaceView: View {
                             .allowsHitTesting(session.id == appModel.activeTerminalSessionID)
                             .accessibilityHidden(session.id != appModel.activeTerminalSessionID)
                         }
-                    }
-
-                    if let selectedSession = appModel.selectedSession,
-                       selectedSession.id != appModel.activeTerminalSessionID {
-                        Text("当前左侧选中：\(selectedSession.name)")
-                            .font(.caption)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(.thinMaterial, in: Capsule())
-                            .padding(12)
                     }
                 }
             } else {

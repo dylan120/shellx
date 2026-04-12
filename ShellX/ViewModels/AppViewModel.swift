@@ -295,6 +295,7 @@ final class AppViewModel: ObservableObject {
             openTerminalSessionIDs.append(Self.localTerminalID)
         }
         activeTerminalSessionID = Self.localTerminalID
+        selectedSessionID = nil
     }
 
     func closeTerminal(sessionID: UUID) {
@@ -307,6 +308,8 @@ final class AppViewModel: ObservableObject {
         activeTerminalSessionID = openTerminalSessionIDs.last
         if let activeTerminalSessionID, activeTerminalSessionID != Self.localTerminalID {
             selectedSessionID = activeTerminalSessionID
+        } else {
+            selectedSessionID = nil
         }
     }
 
