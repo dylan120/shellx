@@ -136,7 +136,16 @@ final class AppViewModel: ObservableObject {
         session.updatedAt = .now
 
         do {
-            try syncSessionCredential(session: session, password: submission.password)
+            switch session.authMethod {
+            case .password:
+                if !submission.password.isEmpty {
+                    try passwordStore.savePassword(submission.password, for: session.id)
+                } else if !session.passwordStoredInKeychain {
+                    throw SessionPasswordSyncError.missingPassword
+                }
+            case .sshAgent, .privateKey:
+                try passwordStore.deletePassword(for: session.id)
+            }
         } catch {
             errorMessage = "保存会话密码失败：\(error.localizedDescription)"
             return
@@ -259,5 +268,16 @@ final class AppViewModel: ObservableObject {
 
     private func sessionSort(lhs: SSHSessionProfile, rhs: SSHSessionProfile) -> Bool {
         lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+    }
+}
+
+private enum SessionPasswordSyncError: LocalizedError {
+    case missingPassword
+
+    var errorDescription: String? {
+        switch self {
+        case .missingPassword:
+            return "密码认证会话必须填写登录密码"
+        }
     }
 }
