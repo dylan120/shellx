@@ -176,15 +176,23 @@ private struct TerminalTabWorkspaceView: View {
         VStack(spacing: 0) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
-                    ForEach(appModel.openTerminalSessions) { session in
+                    ForEach(Array(appModel.openTerminalSessions.enumerated()), id: \.element.id) { index, session in
                         let sessionModel = appModel.terminalSessionModel(for: session.id)
                         let isActive = session.id == appModel.activeTerminalSessionID
                         HStack(spacing: 6) {
-                            Image(systemName: "terminal")
-                                .font(.caption)
-                            Text(session.name)
-                                .font(.caption.weight(isActive ? .semibold : .regular))
-                                .lineLimit(1)
+                            if index > 0 {
+                                Rectangle()
+                                    .fill(Color.secondary.opacity(0.28))
+                                    .frame(width: 1, height: 16)
+                            }
+
+                            HStack(spacing: 6) {
+                                Image(systemName: "terminal")
+                                    .font(.caption)
+                                Text(session.name)
+                                    .font(.caption.weight(isActive ? .semibold : .regular))
+                                    .lineLimit(1)
+                            }
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)

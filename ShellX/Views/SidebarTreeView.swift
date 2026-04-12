@@ -56,19 +56,19 @@ private struct AllSessionsRow: View {
                 .foregroundStyle(.secondary)
                 .font(.caption)
         }
-        .padding(.vertical, 4)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
         .contentShape(Rectangle())
-        .background(rowBackground(isSelected: appModel.selectedFolderID == nil))
-        .listRowInsets(EdgeInsets())
         .onTapGesture {
             appModel.selectedFolderID = nil
             appModel.syncSelectionToVisibleSessions()
         }
+        .listRowInsets(EdgeInsets())
+        .listRowBackground(rowBackground(isSelected: appModel.selectedFolderID == nil))
     }
 
-    private func rowBackground(isSelected: Bool) -> some View {
-        Rectangle()
-            .fill(isSelected ? Color.accentColor.opacity(0.16) : .clear)
+    private func rowBackground(isSelected: Bool) -> Color {
+        isSelected ? Color.accentColor.opacity(0.16) : .clear
     }
 }
 
@@ -128,10 +128,9 @@ private struct FolderBranchView: View {
                     .foregroundStyle(.secondary)
                     .font(.caption)
             }
-            .padding(.vertical, 4)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
             .contentShape(Rectangle())
-            .background(rowBackground(isSelected: appModel.selectedFolderID == node.folder.id))
-            .listRowInsets(EdgeInsets())
             .onTapGesture {
                 appModel.selectedFolderID = node.folder.id
                 appModel.syncSelectionToVisibleSessions()
@@ -152,12 +151,13 @@ private struct FolderBranchView: View {
                     onDeleteFolder(node.folder)
                 }
             }
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(rowBackground(isSelected: appModel.selectedFolderID == node.folder.id))
         }
     }
 
-    private func rowBackground(isSelected: Bool) -> some View {
-        Rectangle()
-            .fill(isSelected ? Color.accentColor.opacity(0.16) : .clear)
+    private func rowBackground(isSelected: Bool) -> Color {
+        isSelected ? Color.accentColor.opacity(0.16) : .clear
     }
 }
 
@@ -179,10 +179,9 @@ private struct SessionTreeRow: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         }
-        .padding(.vertical, 4)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
         .contentShape(Rectangle())
-        .background(rowBackground(isSelected: appModel.selectedSessionID == session.id))
-        .listRowInsets(EdgeInsets())
         .onTapGesture {
             appModel.selectedSessionID = session.id
         }
@@ -205,10 +204,11 @@ private struct SessionTreeRow: View {
                 onDeleteSession(session)
             }
         }
+        .listRowInsets(EdgeInsets())
+        .listRowBackground(rowBackground(isSelected: appModel.selectedSessionID == session.id))
     }
 
-    private func rowBackground(isSelected: Bool) -> some View {
-        Rectangle()
-            .fill(isSelected ? Color.accentColor.opacity(0.16) : .clear)
+    private func rowBackground(isSelected: Bool) -> Color {
+        isSelected ? Color.accentColor.opacity(0.16) : .clear
     }
 }
