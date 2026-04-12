@@ -25,6 +25,12 @@ enum TerminalConnectionState: Equatable {
     }
 }
 
+struct SSHPasswordPrompt: Identifiable, Equatable {
+    let id = UUID()
+    let sessionName: String
+    let message: String
+}
+
 @MainActor
 final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDelegate, SSHPTYTransportDelegate {
     @Published var connectionState: TerminalConnectionState = .idle
@@ -33,6 +39,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
     @Published var lastExitMessage: String?
     @Published var transferState: ZModemTransferState = .idle
     @Published var hostKeyPrompt: KnownHostPrompt?
+    @Published var passwordPrompt: SSHPasswordPrompt?
 
     private weak var terminalView: TerminalView?
     private let transport = SSHPTYTransport()
@@ -197,6 +204,8 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
                 try await knownHostsService.trust(hostKeyPrompt)
                 await MainActor.run {
                     self.hostKeyPrompt = nil
+                    self.lastExitMessage = "主机指纹已写入 ShellX 的 known_hosts，正在继续连接。"
+                    self.connectionState = .connecting
                     self.pendingSession = nil
                     self.pendingConnectedHandler = nil
                     self.startTransport(session: pendingSession, onConnected: pendingConnectedHandler)
@@ -215,6 +224,27 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
         pendingSession = nil
         pendingConnectedHandler = nil
         connectionState = .failed("已取消主机指纹确认")
+    }
+
+    func submitPasswordAndContinue(_ password: String) {
+        let trimmedPassword = password.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPassword.isEmpty,
+              let pendingSession,
+              let pendingConnectedHandler else { return }
+
+        passwordPrompt = nil
+        lastExitMessage = "正在使用本次输入的密码继续连接。"
+        connectionState = .connecting
+        self.pendingSession = nil
+        self.pendingConnectedHandler = nil
+        startTransport(session: pendingSession, onConnected: pendingConnectedHandler, passwordOverride: trimmedPassword)
+    }
+
+    func cancelPasswordPrompt() {
+        passwordPrompt = nil
+        pendingSession = nil
+        pendingConnectedHandler = nil
+        connectionState = .failed("已取消密码输入")
     }
 
     private func start(session: SSHSessionProfile, onConnected: @escaping (UUID) -> Void) {
@@ -269,17 +299,46 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
         }
     }
 
-    private func startTransport(session: SSHSessionProfile, onConnected: @escaping (UUID) -> Void) {
+    private func startTransport(
+        session: SSHSessionProfile,
+        onConnected: @escaping (UUID) -> Void,
+        passwordOverride: String? = nil
+    ) {
         let password: String?
         if session.authMethod == .password {
-            do {
-                password = try passwordStore.loadPassword(for: session.id)
-            } catch {
-                connectionState = .failed("读取会话密码失败：\(error.localizedDescription)")
-                return
-            }
-            if password?.isEmpty != false {
-                connectionState = .failed("未找到该会话的登录密码，请重新编辑会话后保存")
+            if let passwordOverride, !passwordOverride.isEmpty {
+                password = passwordOverride
+            } else if session.passwordStoredInKeychain {
+                do {
+                    password = try passwordStore.loadPassword(for: session.id)
+                } catch {
+                    passwordPrompt = SSHPasswordPrompt(
+                        sessionName: session.name,
+                        message: "读取系统 Keychain 中的 SSH 密码失败：\(error.localizedDescription)\n请改为输入本次连接密码。"
+                    )
+                    pendingSession = session
+                    pendingConnectedHandler = onConnected
+                    connectionState = .failed("无法访问系统 Keychain，请输入本次连接密码。")
+                    return
+                }
+                if password?.isEmpty != false {
+                    passwordPrompt = SSHPasswordPrompt(
+                        sessionName: session.name,
+                        message: "没有找到已保存的 SSH 密码，请输入本次连接密码。"
+                    )
+                    pendingSession = session
+                    pendingConnectedHandler = onConnected
+                    connectionState = .failed("未找到已保存密码，请输入本次连接密码。")
+                    return
+                }
+            } else {
+                passwordPrompt = SSHPasswordPrompt(
+                    sessionName: session.name,
+                    message: "该会话未保存 SSH 密码，请输入本次连接密码。"
+                )
+                pendingSession = session
+                pendingConnectedHandler = onConnected
+                connectionState = .failed("请先输入本次连接密码。")
                 return
             }
         } else {

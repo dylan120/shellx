@@ -138,10 +138,10 @@ final class AppViewModel: ObservableObject {
         do {
             switch session.authMethod {
             case .password:
-                if !submission.password.isEmpty {
+                if session.passwordStoredInKeychain, !submission.password.isEmpty {
                     try passwordStore.savePassword(submission.password, for: session.id)
                 } else if !session.passwordStoredInKeychain {
-                    throw SessionPasswordSyncError.missingPassword
+                    try passwordStore.deletePassword(for: session.id)
                 }
             case .sshAgent, .privateKey:
                 try passwordStore.deletePassword(for: session.id)
@@ -268,16 +268,5 @@ final class AppViewModel: ObservableObject {
 
     private func sessionSort(lhs: SSHSessionProfile, rhs: SSHSessionProfile) -> Bool {
         lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
-    }
-}
-
-private enum SessionPasswordSyncError: LocalizedError {
-    case missingPassword
-
-    var errorDescription: String? {
-        switch self {
-        case .missingPassword:
-            return "密码认证会话必须填写登录密码"
-        }
     }
 }

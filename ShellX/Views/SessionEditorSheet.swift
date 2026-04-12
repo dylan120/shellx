@@ -47,6 +47,7 @@ struct SessionEditorSheet: View {
                 }
 
                 if draft.authMethod == .password {
+                    Toggle("将密码保存到系统 Keychain", isOn: $draft.passwordStoredInKeychain)
                     SecureField("登录密码", text: $password)
                     Text(passwordHelpText)
                         .font(.footnote)
@@ -78,7 +79,7 @@ struct SessionEditorSheet: View {
                     var session = draft
                     if session.authMethod != .password {
                         session.passwordStoredInKeychain = false
-                    } else if !trimmedPassword.isEmpty {
+                    } else if session.passwordStoredInKeychain && !trimmedPassword.isEmpty {
                         session.passwordStoredInKeychain = true
                     }
 
@@ -103,18 +104,14 @@ struct SessionEditorSheet: View {
     }
 
     private var canSave: Bool {
-        guard draft.isValid else { return false }
-        if draft.authMethod == .password {
-            return draft.passwordStoredInKeychain || !trimmedPassword.isEmpty
-        }
-        return true
+        draft.isValid
     }
 
     private var passwordHelpText: String {
         if draft.passwordStoredInKeychain {
-            return "密码已保存在系统 Keychain；留空可保持原密码不变。"
+            return "密码会尝试保存到系统 Keychain；留空可保持原密码不变。若 Keychain 访问失败，连接时仍可改为手动输入本次密码。"
         }
-        return "密码仅保存在系统 Keychain，不会写入 ShellX 的 sessions.json。"
+        return "关闭后不会保存到系统 Keychain。连接时会提示输入本次密码，不会写入 ShellX 的 sessions.json。"
     }
 }
 

@@ -88,6 +88,17 @@ struct TerminalWindowView: View {
                 }
             )
         }
+        .sheet(item: $sessionModel.passwordPrompt) { prompt in
+            SSHPasswordPromptSheet(
+                prompt: prompt,
+                onConfirm: { password in
+                    sessionModel.submitPasswordAndContinue(password)
+                },
+                onCancel: {
+                    sessionModel.cancelPasswordPrompt()
+                }
+            )
+        }
     }
 
     private var statusColor: Color {
@@ -107,6 +118,50 @@ struct TerminalWindowView: View {
         sessionModel.reconnect(session: session) { sessionID in
             appModel.markConnected(sessionID: sessionID)
         }
+    }
+}
+
+private struct SSHPasswordPromptSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var password = ""
+
+    let prompt: SSHPasswordPrompt
+    let onConfirm: (String) -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("输入 SSH 密码")
+                .font(.title2.weight(.semibold))
+
+            Text("会话：\(prompt.sessionName)")
+                .foregroundStyle(.secondary)
+
+            Text(prompt.message)
+
+            SecureField("本次连接密码", text: $password)
+
+            Text("本次输入的密码仅用于当前连接，不会写入 ShellX 的本地配置文件。")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            HStack {
+                Spacer()
+                Button("取消") {
+                    onCancel()
+                    dismiss()
+                }
+                Button("继续连接") {
+                    onConfirm(password)
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(password.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 460)
     }
 }
 
