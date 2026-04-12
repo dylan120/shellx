@@ -169,13 +169,18 @@ private struct TerminalTabWorkspaceView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if let activeSession {
-                TerminalWindowView(
-                    sessionModel: appModel.terminalSessionModel(for: activeSession.id),
-                    session: activeSession
-                )
-                .id(activeSession.id)
-                .overlay(alignment: .topTrailing) {
+            if !appModel.openTerminalSessions.isEmpty {
+                ZStack(alignment: .topTrailing) {
+                    ForEach(appModel.openTerminalSessions) { session in
+                        TerminalWindowView(
+                            sessionModel: appModel.terminalSessionModel(for: session.id),
+                            session: session
+                        )
+                        .opacity(session.id == appModel.activeTerminalSessionID ? 1 : 0)
+                        .allowsHitTesting(session.id == appModel.activeTerminalSessionID)
+                        .accessibilityHidden(session.id != appModel.activeTerminalSessionID)
+                    }
+
                     if let selectedSession = appModel.selectedSession,
                        selectedSession.id != appModel.activeTerminalSessionID {
                         Text("当前左侧选中：\(selectedSession.name)")
@@ -212,6 +217,7 @@ private struct TerminalTabWorkspaceView: View {
                             appModel.activeTerminalSessionID = session.id
                             appModel.selectedSessionID = session.id
                         }
+                        .help("右击显示标签操作")
                         .contextMenu {
                             Button("切换到此标签") {
                                 appModel.activeTerminalSessionID = session.id
@@ -229,13 +235,6 @@ private struct TerminalTabWorkspaceView: View {
             }
             .background(.thinMaterial)
         }
-    }
-
-    private var activeSession: SSHSessionProfile? {
-        if let activeID = appModel.activeTerminalSessionID {
-            return appModel.sessions.first(where: { $0.id == activeID })
-        }
-        return appModel.openTerminalSessions.first
     }
 
     private func tabBackground(for sessionID: UUID) -> some ShapeStyle {

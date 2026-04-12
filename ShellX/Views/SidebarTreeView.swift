@@ -130,17 +130,17 @@ private struct FolderBranchView: View {
                 appModel.selectedFolderID = node.folder.id
                 appModel.syncSelectionToVisibleSessions()
             }
-        }
-        .contextMenu {
-            Button("新建子文件夹") {
-                onAddSubfolder(node.folder)
-            }
-            Button("重命名") {
-                onRenameFolder(node.folder)
-            }
-            Divider()
-            Button("删除", role: .destructive) {
-                onDeleteFolder(node.folder)
+            .contextMenu {
+                Button("新建子文件夹") {
+                    onAddSubfolder(node.folder)
+                }
+                Button("重命名") {
+                    onRenameFolder(node.folder)
+                }
+                Divider()
+                Button("删除", role: .destructive) {
+                    onDeleteFolder(node.folder)
+                }
             }
         }
     }
