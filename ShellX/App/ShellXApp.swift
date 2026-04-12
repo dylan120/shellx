@@ -1,8 +1,14 @@
+import AppKit
 import SwiftUI
 
 @main
 struct ShellXApp: App {
     @StateObject private var appModel = AppViewModel()
+
+    init() {
+        // 明确以普通前台应用启动，确保程序坞和应用切换器中显示图标。
+        NSApp.setActivationPolicy(.regular)
+    }
 
     var body: some Scene {
         WindowGroup("会话管理", id: "manager-window") {

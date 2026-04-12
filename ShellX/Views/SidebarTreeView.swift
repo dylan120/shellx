@@ -1,3 +1,4 @@
+import UniformTypeIdentifiers
 import SwiftUI
 
 struct SidebarTreeView: View {
@@ -45,6 +46,35 @@ struct SidebarTreeView: View {
     }
 }
 
+private enum SidebarDragItem {
+    static let itemType = UTType.plainText
+
+    case folder(UUID)
+    case session(UUID)
+
+    var payload: String {
+        switch self {
+        case .folder(let id):
+            return "folder:\(id.uuidString)"
+        case .session(let id):
+            return "session:\(id.uuidString)"
+        }
+    }
+
+    init?(payload: String) {
+        let components = payload.split(separator: ":", maxSplits: 1).map(String.init)
+        guard components.count == 2, let id = UUID(uuidString: components[1]) else { return nil }
+        switch components[0] {
+        case "folder":
+            self = .folder(id)
+        case "session":
+            self = .session(id)
+        default:
+            return nil
+        }
+    }
+}
+
 private struct AllSessionsRow: View {
     @EnvironmentObject private var appModel: AppViewModel
 
@@ -63,8 +93,22 @@ private struct AllSessionsRow: View {
             appModel.selectedFolderID = nil
             appModel.syncSelectionToVisibleSessions()
         }
+        .dropDestination(for: String.self) { items, _ in
+            handleDrop(items, to: nil)
+        }
         .listRowInsets(EdgeInsets())
         .listRowBackground(rowBackground(isSelected: appModel.selectedFolderID == nil))
+    }
+
+    private func handleDrop(_ items: [String], to folderID: UUID?) -> Bool {
+        guard let item = items.compactMap(SidebarDragItem.init(payload:)).first else { return false }
+        switch item {
+        case .folder(let draggedFolderID):
+            appModel.moveFolder(draggedFolderID, to: folderID)
+        case .session(let draggedSessionID):
+            appModel.moveSession(draggedSessionID, to: folderID)
+        }
+        return true
     }
 
     private func rowBackground(isSelected: Bool) -> Color {
@@ -135,6 +179,10 @@ private struct FolderBranchView: View {
                 appModel.selectedFolderID = node.folder.id
                 appModel.syncSelectionToVisibleSessions()
             }
+            .draggable(SidebarDragItem.folder(node.folder.id).payload)
+            .dropDestination(for: String.self) { items, _ in
+                handleDrop(items, to: node.folder.id)
+            }
             .contextMenu {
                 Button("新建会话") {
                     onAddSession(node.folder)
@@ -154,6 +202,17 @@ private struct FolderBranchView: View {
             .listRowInsets(EdgeInsets())
             .listRowBackground(rowBackground(isSelected: appModel.selectedFolderID == node.folder.id))
         }
+    }
+
+    private func handleDrop(_ items: [String], to folderID: UUID?) -> Bool {
+        guard let item = items.compactMap(SidebarDragItem.init(payload:)).first else { return false }
+        switch item {
+        case .folder(let draggedFolderID):
+            appModel.moveFolder(draggedFolderID, to: folderID)
+        case .session(let draggedSessionID):
+            appModel.moveSession(draggedSessionID, to: folderID)
+        }
+        return true
     }
 
     private func rowBackground(isSelected: Bool) -> Color {
@@ -189,6 +248,7 @@ private struct SessionTreeRow: View {
             appModel.selectedSessionID = session.id
             onConnectSession(session)
         }
+        .draggable(SidebarDragItem.session(session.id).payload)
         .contextMenu {
             Button("连接") {
                 onConnectSession(session)

@@ -143,6 +143,34 @@ final class AppViewModel: ObservableObject {
         persist()
     }
 
+    func moveSession(_ sessionID: UUID, to folderID: UUID?) {
+        guard let index = sessions.firstIndex(where: { $0.id == sessionID }) else { return }
+        guard sessions[index].folderID != folderID else { return }
+
+        sessions[index].folderID = folderID
+        sessions[index].updatedAt = .now
+        sessions.sort(by: sessionSort)
+        syncSelectionToVisibleSessions()
+        persist()
+    }
+
+    func moveFolder(_ folderID: UUID, to parentID: UUID?) {
+        guard let index = folders.firstIndex(where: { $0.id == folderID }) else { return }
+        guard folders[index].parentID != parentID else { return }
+
+        // 禁止把文件夹拖到自己或自己的后代节点下，避免形成循环树结构。
+        if folderID == parentID || isDescendant(parentID, of: folderID) {
+            errorMessage = "不能将文件夹移动到自身或其子文件夹中。"
+            return
+        }
+
+        folders[index].parentID = parentID
+        folders[index].updatedAt = .now
+        folders.sort(by: folderSort)
+        syncSelectionToVisibleSessions()
+        persist()
+    }
+
     func saveSession(_ submission: SessionEditorSubmission) {
         var session = submission.session
         session.updatedAt = .now
