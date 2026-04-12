@@ -42,7 +42,8 @@ enum ZModemTrigger: Equatable {
 
 struct ZModemTriggerDetector {
     private let maxBufferLength = 4096
-    private let uploadPattern = #"rz waiting to receive\.\*\*B01[0-9A-Fa-f]{8,}"#
+    private let uploadPromptPattern = #"rz waiting to receive\.\*\*B01[0-9A-Fa-f]{8,}"#
+    private let uploadHandshakePattern = #"\*\*B01[0-9A-Fa-f]{8,}"#
     private let downloadPattern = #"\*\*B0{14,}[0-9A-Fa-f]*"#
     private(set) var buffer = ""
 
@@ -53,7 +54,10 @@ struct ZModemTriggerDetector {
             buffer = String(buffer.suffix(maxBufferLength))
         }
 
-        if buffer.range(of: uploadPattern, options: .regularExpression) != nil {
+        // 终端回显经常会把 "rz waiting to receive." 文本切碎，只保留真实的 ZMODEM 起始帧。
+        // 因此上传检测优先识别协议握手本身，而不是依赖完整提示文案连续出现。
+        if buffer.range(of: uploadPromptPattern, options: .regularExpression) != nil ||
+            buffer.range(of: uploadHandshakePattern, options: .regularExpression) != nil {
             buffer.removeAll(keepingCapacity: true)
             return .uploadRequest
         }
