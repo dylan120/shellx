@@ -68,6 +68,10 @@ final class AppViewModel: ObservableObject {
         buildNodes(parentID: nil)
     }
 
+    var rootSessions: [SSHSessionProfile] {
+        sessions(in: nil)
+    }
+
     var openTerminalSessions: [SSHSessionProfile] {
         openTerminalSessionIDs.compactMap { sessionID in
             sessions.first(where: { $0.id == sessionID })
@@ -78,6 +82,13 @@ final class AppViewModel: ObservableObject {
         folders
             .filter { $0.parentID == parentID }
             .sorted(by: folderSort)
+    }
+
+    func sessions(in folderID: UUID?) -> [SSHSessionProfile] {
+        sessions
+            .filter { $0.folderID == folderID }
+            .filter(matchesSearch)
+            .sorted(by: sessionSort)
     }
 
     func folderName(for id: UUID?) -> String {

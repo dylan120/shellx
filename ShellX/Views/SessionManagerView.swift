@@ -35,56 +35,18 @@ struct SessionManagerView: View {
                 },
                 onDeleteFolder: { folder in
                     appModel.deleteFolder(folder)
+                },
+                onEditSession: { session in
+                    activeSheet = .editSession(session)
+                },
+                onConnectSession: openTerminal(for:),
+                onDuplicateSession: { session in
+                    appModel.duplicateSession(session)
+                },
+                onDeleteSession: { session in
+                    appModel.deleteSession(session)
                 }
             )
-        } content: {
-            VStack(spacing: 0) {
-                HStack {
-                    TextField("搜索会话名称 / 主机 / 用户", text: $appModel.searchText)
-                        .textFieldStyle(.roundedBorder)
-                    Text("共 \(appModel.filteredSessions.count) 项")
-                        .foregroundStyle(.secondary)
-                }
-                .padding()
-
-                List(selection: $appModel.selectedSessionID) {
-                    ForEach(appModel.filteredSessions) { session in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(session.name)
-                                .font(.headline)
-                            Text("\(session.destination):\(session.port)")
-                                .foregroundStyle(.secondary)
-                                .font(.subheadline)
-                        }
-                        .padding(.vertical, 4)
-                        .contentShape(Rectangle())
-                        .tag(Optional(session.id))
-                        .onTapGesture {
-                            appModel.selectedSessionID = session.id
-                        }
-                        .onTapGesture(count: 2) {
-                            appModel.selectedSessionID = session.id
-                            openTerminal(for: session)
-                        }
-                        .contextMenu {
-                            Button("连接") {
-                                openTerminal(for: session)
-                            }
-                            Button("复制") {
-                                appModel.duplicateSession(session)
-                            }
-                            Button("编辑") {
-                                activeSheet = .editSession(session)
-                            }
-                            Divider()
-                            Button("删除", role: .destructive) {
-                                appModel.deleteSession(session)
-                            }
-                        }
-                    }
-                }
-                .listStyle(.inset)
-            }
         } detail: {
             if appModel.openTerminalSessions.isEmpty {
                 SessionDetailView(
@@ -95,9 +57,6 @@ struct SessionManagerView: View {
                 )
             } else {
                 TerminalTabWorkspaceView(
-                    onEdit: { session in
-                        activeSheet = .editSession(session)
-                    },
                     onClose: { sessionID in
                         appModel.closeTerminal(sessionID: sessionID)
                     }
@@ -108,6 +67,10 @@ struct SessionManagerView: View {
         .navigationTitle("ShellX")
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
+                TextField("搜索会话名称 / 主机 / 用户", text: $appModel.searchText)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 260)
+
                 Button {
                     activeSheet = .createFolder(currentFolderParent)
                 } label: {
@@ -202,49 +165,10 @@ struct SessionManagerView: View {
 private struct TerminalTabWorkspaceView: View {
     @EnvironmentObject private var appModel: AppViewModel
 
-    let onEdit: (SSHSessionProfile) -> Void
     let onClose: (UUID) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(appModel.openTerminalSessions) { session in
-                        HStack(spacing: 8) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "terminal")
-                                Text(session.name)
-                                    .lineLimit(1)
-                            }
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                appModel.activeTerminalSessionID = session.id
-                                appModel.selectedSessionID = session.id
-                            }
-
-                            Button {
-                                onClose(session.id)
-                            } label: {
-                                Image(systemName: "xmark")
-                                    .font(.caption.bold())
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(tabBackground(for: session.id), in: Capsule())
-                    }
-                    if let activeSession = activeSession {
-                        Button("编辑当前会话") {
-                            onEdit(activeSession)
-                        }
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-            }
-            .background(.thinMaterial)
-
             if let activeSession {
                 TerminalWindowView(
                     sessionModel: appModel.terminalSessionModel(for: activeSession.id),
@@ -266,9 +190,44 @@ private struct TerminalTabWorkspaceView: View {
                 ContentUnavailableView(
                     "没有打开的终端标签",
                     systemImage: "terminal",
-                    description: Text("从会话列表或详情面板中点击“连接”后，会在这里以标签页形式显示。")
+                    description: Text("从左侧会话树或详情面板中点击“连接”后，会在这里以标签页形式显示。")
                 )
             }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(appModel.openTerminalSessions) { session in
+                        HStack(spacing: 6) {
+                            Image(systemName: "terminal")
+                                .font(.caption)
+                            Text(session.name)
+                                .font(.caption)
+                                .lineLimit(1)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .contentShape(Rectangle())
+                        .background(tabBackground(for: session.id), in: Capsule())
+                        .onTapGesture {
+                            appModel.activeTerminalSessionID = session.id
+                            appModel.selectedSessionID = session.id
+                        }
+                        .contextMenu {
+                            Button("切换到此标签") {
+                                appModel.activeTerminalSessionID = session.id
+                                appModel.selectedSessionID = session.id
+                            }
+                            Divider()
+                            Button("关闭标签") {
+                                onClose(session.id)
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+            }
+            .background(.thinMaterial)
         }
     }
 
@@ -354,7 +313,7 @@ private struct SessionDetailView: View {
             ContentUnavailableView(
                 "选择一个会话",
                 systemImage: "terminal",
-                description: Text("从左侧文件夹树或会话列表中选择要管理的 SSH 会话。")
+                description: Text("从左侧文件夹树中的会话项里选择要管理的 SSH 会话。")
             )
         }
     }
