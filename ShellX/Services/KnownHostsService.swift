@@ -174,14 +174,28 @@ actor KnownHostsService {
     }
 
     private func scanHostKeys(host: String, port: Int) async throws -> [String] {
-        let output = try await runProcess(
-            executable: "/usr/bin/ssh-keyscan",
-            arguments: ["-T", "5", "-p", "\(port)", host]
-        )
+        let preferredAlgorithms = "ed25519,ecdsa,rsa"
+        let output: String
+
+        do {
+            // 显式拉取常见 host key 算法，避免默认扫描结果缺少当前 ssh 实际协商到的算法。
+            output = try await runProcess(
+                executable: "/usr/bin/ssh-keyscan",
+                arguments: ["-T", "5", "-t", preferredAlgorithms, "-p", "\(port)", host]
+            )
+        } catch {
+            output = try await runProcess(
+                executable: "/usr/bin/ssh-keyscan",
+                arguments: ["-T", "5", "-p", "\(port)", host]
+            )
+        }
+
+        var seen = Set<String>()
         return output
             .split(separator: "\n")
             .map(String.init)
             .filter { !$0.hasPrefix("#") && !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .filter { seen.insert($0).inserted }
     }
 
     private func fingerprint(line: String) throws -> String {
