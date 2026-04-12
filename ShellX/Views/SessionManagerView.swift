@@ -159,7 +159,10 @@ struct SessionManagerView: View {
     }
 
     private func openTerminal(for session: SSHSessionProfile) {
-        appModel.openTerminal(sessionID: session.id)
+        let result = appModel.openTerminal(sessionID: session.id)
+        if result == .activatedExisting {
+            appModel.errorMessage = "该会话已打开，已切换到现有标签。"
+        }
     }
 
     private func saveSessionSubmission(_ submission: SessionEditorSubmission) {

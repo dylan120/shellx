@@ -12,6 +12,11 @@ struct TerminalTabItem: Identifiable, Equatable {
     let kind: Kind
 }
 
+enum OpenTerminalResult: Equatable {
+    case opened
+    case activatedExisting
+}
+
 @MainActor
 final class AppViewModel: ObservableObject {
     static let localTerminalID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
@@ -282,12 +287,14 @@ final class AppViewModel: ObservableObject {
         errorMessage = nil
     }
 
-    func openTerminal(sessionID: UUID) {
-        if !openTerminalSessionIDs.contains(sessionID) {
+    func openTerminal(sessionID: UUID) -> OpenTerminalResult {
+        let didAlreadyOpen = openTerminalSessionIDs.contains(sessionID)
+        if !didAlreadyOpen {
             openTerminalSessionIDs.append(sessionID)
         }
         activeTerminalSessionID = sessionID
         selectedSessionID = sessionID
+        return didAlreadyOpen ? .activatedExisting : .opened
     }
 
     func openLocalTerminal() {
