@@ -99,14 +99,7 @@ actor KnownHostsService {
         let mergedLines = existingLines + prompt.scannedLines
         let content = mergedLines.joined(separator: "\n") + "\n"
         try content.write(to: fileURL, atomically: true, encoding: .utf8)
-        _ = try? runProcessSync(
-            executable: "/usr/bin/ssh-keygen",
-            arguments: ["-H", "-f", fileURL.path]
-        )
-        let backupURL = URL(fileURLWithPath: fileURL.path + ".old")
-        if fileManager.fileExists(atPath: backupURL.path) {
-            try? fileManager.removeItem(at: backupURL)
-        }
+        try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
     }
 
     nonisolated static func defaultKnownHostsFilePath() throws -> String {
