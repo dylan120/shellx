@@ -139,10 +139,16 @@ actor KnownHostsService {
             return []
         }
         let key = hostPattern(host: host, port: port)
-        let output = try runProcessSync(
-            executable: "/usr/bin/ssh-keygen",
-            arguments: ["-F", key, "-f", fileURL.path]
-        )
+        let output: String
+        do {
+            output = try runProcessSync(
+                executable: "/usr/bin/ssh-keygen",
+                arguments: ["-F", key, "-f", fileURL.path]
+            )
+        } catch {
+            // `ssh-keygen -F` 在无匹配记录时可能返回非 0，这里应视为“未信任”而不是校验失败。
+            return []
+        }
         return output
             .split(separator: "\n")
             .map(String.init)
