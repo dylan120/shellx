@@ -135,9 +135,9 @@ struct SessionEditorSheet: View {
 
     private var passwordHelpText: String {
         if draft.passwordStoredInKeychain {
-            return "首次连接时会提示输入一次密码，并尝试保存到系统 Keychain。后续重新打开 ShellX 后会优先自动读取；若系统 Keychain 访问失败，仍可退回手动输入本次密码。"
+            return "当前开关仅用于 SFTP 传输时复用密码。SSH 登录阶段的密码提示由终端中的系统 ssh 自己处理，ShellX 不会在连接 SSH 时自动读取或写入系统 Keychain。"
         }
-        return "关闭后不会保存到系统 Keychain。每次连接时都会提示输入本次密码，不会写入 ShellX 的 sessions.json。"
+        return "关闭后不会为该会话保存 SFTP 传输所需密码。SSH 登录阶段仍由终端中的系统 ssh 直接提示输入，不会写入 ShellX 的 sessions.json。"
     }
 
     private func selectPrivateKeyFile() {

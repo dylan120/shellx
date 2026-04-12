@@ -311,32 +311,9 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
 
     func transportDidRequestPassword() {
         guard let session = activeSession, session.authMethod == .password else { return }
-
-        if let cachedPassword = passwordStore.cachedPassword(for: session.id), !cachedPassword.isEmpty {
-            transport.providePassword(cachedPassword)
-            showTransientBanner("已从当前运行缓存中读取 SSH 密码，正在继续认证。")
-            return
-        }
-
-        if session.passwordStoredInKeychain {
-            do {
-                if let storedPassword = try passwordStore.loadPassword(for: session.id), !storedPassword.isEmpty {
-                    passwordStore.cachePassword(storedPassword, for: session.id)
-                    transport.providePassword(storedPassword)
-                    showTransientBanner("已从系统 Keychain 读取 SSH 密码，正在继续认证。")
-                    return
-                }
-            } catch {
-                showTransientBanner("读取系统 Keychain 中的密码失败：\(error.localizedDescription)。请改为输入本次连接密码。", delaySeconds: 5)
-            }
-        }
-
-        passwordPromptPurpose = .sshConnection
-        passwordPrompt = SSHPasswordPrompt(
-            sessionName: session.name,
-            message: "远端已请求 SSH 密码。请输入本次连接密码。若当前会话开启了“保存到系统 Keychain”，ShellX 会在本次输入后重新写入，后续连接可直接复用。"
-        )
-        connectionState = .failed("请先输入本次连接密码。")
+        // 按当前产品决策，账号密码模式下的 SSH 登录完全交给系统 ssh 在终端内处理。
+        // ShellX 不再在远端密码提示阶段读取或写入 Keychain，也不再弹本地密码输入框。
+        showTransientBanner("远端正在请求 SSH 密码，请直接在终端中输入。", delaySeconds: 5)
     }
 
     func transportDidFail(_ message: String) {
