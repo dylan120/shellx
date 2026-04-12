@@ -256,6 +256,22 @@ final class AppViewModelTests: XCTestCase {
         XCTAssertEqual(trigger, .downloadRequest)
     }
 
+    func testSanitizedTransferSeedDropsPromptBeforeDownloadHandshake() {
+        let raw = Data("(base) dylan@dev:~$ sz file\r\n**B00000000000000".utf8)
+
+        let sanitized = SSHPTYTransport.sanitizedTransferSeed(from: raw, trigger: .downloadRequest)
+
+        XCTAssertEqual(String(decoding: sanitized, as: UTF8.self), "**B00000000000000")
+    }
+
+    func testSanitizedTransferSeedDropsPromptBeforeUploadHandshake() {
+        let raw = Data("rz waiting to receive.**B0100000023be50".utf8)
+
+        let sanitized = SSHPTYTransport.sanitizedTransferSeed(from: raw, trigger: .uploadRequest)
+
+        XCTAssertEqual(String(decoding: sanitized, as: UTF8.self), "**B0100000023be50")
+    }
+
     func testZModemHelperLocatorReturnsNilForUnknownCommand() {
         XCTAssertNil(ZModemHelperLocator.path(named: "shellx-not-a-real-command"))
     }

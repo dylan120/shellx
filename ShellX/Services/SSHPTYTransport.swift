@@ -222,7 +222,7 @@ final class SSHPTYTransport {
 
         if let trigger = zmodemDetector.consume(data) {
             pendingTrigger = trigger
-            pendingData = data
+            pendingData = Self.sanitizedTransferSeed(from: data, trigger: trigger)
             DispatchQueue.main.async { [weak self] in
                 self?.delegate?.transportDidDetectZModem(trigger)
             }
@@ -455,5 +455,21 @@ final class SSHPTYTransport {
         }
 
         return result
+    }
+
+    static func sanitizedTransferSeed(from data: Data, trigger: ZModemTrigger) -> Data {
+        let marker: [UInt8]
+        switch trigger {
+        case .uploadRequest:
+            marker = Array("**B01".utf8)
+        case .downloadRequest:
+            marker = Array("**B0".utf8)
+        }
+
+        let bytes = Array(data)
+        guard let startIndex = bytes.firstRange(of: marker)?.lowerBound else {
+            return data
+        }
+        return Data(bytes[startIndex...])
     }
 }
