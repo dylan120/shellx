@@ -15,24 +15,18 @@ final class SessionPasswordStore {
         }
 
         let account = sessionID.uuidString
-        let query = baseQuery(for: account)
-        let attributes: [CFString: Any] = [kSecValueData: data]
-        let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
-
-        if status == errSecSuccess {
-            // 更新已有条目成功后，同步刷新进程内缓存，避免连接时再次触发授权。
-            Self.cachedPasswords[sessionID] = password
-            Self.recordDiagnostic("savePassword.update.success", sessionID: sessionID)
-            return
+        // 账号密码模式希望“首次输入后，后续重启应用也能直接读取”。
+        // 这里统一删除旧条目后按带受信任访问者的方式重建，确保后续读取
+        // 尽量复用当前应用的 Keychain 访问授权，而不是每次都重新弹系统窗口。
+        let deleteStatus = SecItemDelete(baseQuery(for: account) as CFDictionary)
+        guard deleteStatus == errSecSuccess || deleteStatus == errSecItemNotFound else {
+            Self.recordDiagnostic("savePassword.delete.failure.\(deleteStatus)", sessionID: sessionID)
+            throw PasswordStoreError.keychain(deleteStatus)
         }
 
-        guard status == errSecItemNotFound else {
-            Self.recordDiagnostic("savePassword.update.failure.\(status)", sessionID: sessionID)
-            throw PasswordStoreError.keychain(status)
-        }
-
-        var addQuery = query
+        var addQuery = baseQuery(for: account)
         addQuery[kSecValueData as String] = data
+        addQuery[kSecAttrAccess as String] = try makeTrustedAccess(account: account)
         let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
         guard addStatus == errSecSuccess else {
             Self.recordDiagnostic("savePassword.add.failure.\(addStatus)", sessionID: sessionID)
@@ -120,6 +114,23 @@ final class SessionPasswordStore {
             kSecAttrService as String: service,
             kSecAttrAccount as String: account
         ]
+    }
+
+    private func makeTrustedAccess(account: String) throws -> SecAccess {
+        var trustedApplication: SecTrustedApplication?
+        let appStatus = SecTrustedApplicationCreateFromPath(nil, &trustedApplication)
+        guard appStatus == errSecSuccess, let trustedApplication else {
+            throw PasswordStoreError.keychain(appStatus)
+        }
+
+        let trustedList = [trustedApplication] as CFArray
+        var access: SecAccess?
+        let descriptor = "ShellX 会话密码 \(account)" as CFString
+        let accessStatus = SecAccessCreate(descriptor, trustedList, &access)
+        guard accessStatus == errSecSuccess, let access else {
+            throw PasswordStoreError.keychain(accessStatus)
+        }
+        return access
     }
 }
 

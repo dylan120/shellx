@@ -241,6 +241,13 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         if pendingSession.authMethod == .password {
             // 账号密码模式优先复用本次输入的密码，避免同一进程内再次触发系统 Keychain 授权。
             passwordStore.cachePassword(trimmedPassword, for: pendingSession.id)
+            if pendingSession.passwordStoredInKeychain {
+                do {
+                    try passwordStore.savePassword(trimmedPassword, for: pendingSession.id)
+                } catch {
+                    lastExitMessage = "保存到系统 Keychain 失败：\(error.localizedDescription)。本次连接仍会继续，并在当前运行期间复用已输入密码。"
+                }
+            }
         }
 
         passwordPrompt = nil
@@ -355,12 +362,23 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
             if let passwordOverride, !passwordOverride.isEmpty {
                 password = passwordOverride
             } else if session.passwordStoredInKeychain {
-                if let cachedPassword = passwordStore.cachedPassword(for: session.id), !cachedPassword.isEmpty {
-                    password = cachedPassword
-                } else {
+                do {
+                    password = try passwordStore.loadPassword(for: session.id)
+                } catch {
                     passwordPrompt = SSHPasswordPrompt(
                         sessionName: session.name,
-                        message: "该会话已配置为使用系统 Keychain 保存密码。为避免 macOS 重复弹出“登录”钥匙串授权窗口，ShellX 当前不会在连接时自动读取系统 Keychain。\n\n请输入本次连接密码；本次输入会在当前应用运行期间复用。"
+                        message: "读取系统 Keychain 中的密码失败：\(error.localizedDescription)\n\n请输入本次连接密码；如果该会话开启了“保存到系统 Keychain”，ShellX 会在本次输入后重新写入。"
+                    )
+                    pendingSession = session
+                    pendingConnectedHandler = onConnected
+                    connectionState = .failed("无法读取系统 Keychain，请先输入本次连接密码。")
+                    return
+                }
+
+                if password?.isEmpty != false {
+                    passwordPrompt = SSHPasswordPrompt(
+                        sessionName: session.name,
+                        message: "当前会话尚未保存密码。请输入一次本次连接密码；如果该会话开启了“保存到系统 Keychain”，ShellX 会在本次输入后写入，后续重启应用也可直接连接。"
                     )
                     pendingSession = session
                     pendingConnectedHandler = onConnected

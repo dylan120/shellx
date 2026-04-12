@@ -11,7 +11,6 @@ struct SessionEditorSheet: View {
     @EnvironmentObject private var appModel: AppViewModel
 
     @State private var draft: SSHSessionProfile
-    @State private var password = ""
     @State private var privateKeySelectionError: String?
     let title: String
     let onSave: (SessionEditorSubmission) -> Void
@@ -82,7 +81,6 @@ struct SessionEditorSheet: View {
 
                 if draft.authMethod == .password {
                     Toggle("将密码保存到系统 Keychain", isOn: $draft.passwordStoredInKeychain)
-                    SecureField("登录密码", text: $password)
                     Text(passwordHelpText)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -113,14 +111,12 @@ struct SessionEditorSheet: View {
                     var session = draft
                     if session.authMethod != .password {
                         session.passwordStoredInKeychain = false
-                    } else if session.passwordStoredInKeychain && !trimmedPassword.isEmpty {
-                        session.passwordStoredInKeychain = true
                     }
 
                     onSave(
                         SessionEditorSubmission(
                             session: session,
-                            password: trimmedPassword
+                            password: ""
                         )
                     )
                     dismiss()
@@ -133,19 +129,15 @@ struct SessionEditorSheet: View {
         .frame(minWidth: 520, minHeight: 420)
     }
 
-    private var trimmedPassword: String {
-        password.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
     private var canSave: Bool {
         draft.isValid
     }
 
     private var passwordHelpText: String {
         if draft.passwordStoredInKeychain {
-            return "密码会尝试保存到系统 Keychain；留空可保持原密码不变。若 Keychain 访问失败，连接时仍可改为手动输入本次密码。"
+            return "首次连接时会提示输入一次密码，并尝试保存到系统 Keychain。后续重新打开 ShellX 后会优先自动读取；若系统 Keychain 访问失败，仍可退回手动输入本次密码。"
         }
-        return "关闭后不会保存到系统 Keychain。连接时会提示输入本次密码，不会写入 ShellX 的 sessions.json。"
+        return "关闭后不会保存到系统 Keychain。每次连接时都会提示输入本次密码，不会写入 ShellX 的 sessions.json。"
     }
 
     private func selectPrivateKeyFile() {
