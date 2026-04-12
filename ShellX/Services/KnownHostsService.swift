@@ -8,6 +8,7 @@ enum KnownHostTrustState: Equatable {
 struct KnownHostPrompt: Identifiable, Equatable {
     enum Kind: Equatable {
         case unknown
+        case updated
         case changed
     }
 
@@ -50,12 +51,28 @@ actor KnownHostsService {
             )
         }
 
-        if Set(existingFingerprints).intersection(Set(newFingerprints)).isEmpty {
+        let existingSet = Set(existingFingerprints)
+        let newSet = Set(newFingerprints)
+
+        if existingSet.intersection(newSet).isEmpty {
             return .prompt(
                 KnownHostPrompt(
                     host: host,
                     port: port,
                     kind: .changed,
+                    scannedLines: scannedLines,
+                    newFingerprints: newFingerprints,
+                    existingFingerprints: existingFingerprints
+                )
+            )
+        }
+
+        if existingSet != newSet {
+            return .prompt(
+                KnownHostPrompt(
+                    host: host,
+                    port: port,
+                    kind: .updated,
                     scannedLines: scannedLines,
                     newFingerprints: newFingerprints,
                     existingFingerprints: existingFingerprints

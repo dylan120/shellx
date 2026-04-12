@@ -254,6 +254,9 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
                     self.hostKeyPrompt = prompt
                     if prompt.kind == .changed {
                         self.connectionState = .failed("检测到主机指纹变更，请先在弹窗中带外确认后再决定是否替换。")
+                    } else if prompt.kind == .updated {
+                        self.connectionState = .connecting
+                        self.lastExitMessage = "检测到主机可用指纹集合已变化，请确认后更新本地 known_hosts。"
                     } else {
                         self.connectionState = .connecting
                     }
