@@ -278,7 +278,9 @@ final class AppViewModel: ObservableObject {
         if let existingModel = terminalSessionModels[sessionID] {
             return existingModel
         }
-        let model = TerminalSessionViewModel()
+        // 终端会话与编辑/保存共用同一个密码存储实例，避免账号密码模式在同一进程内
+        // 因为“保存时写入 Keychain”和“连接时读取 Keychain”分属不同 store 而重复弹授权框。
+        let model = TerminalSessionViewModel(passwordStore: passwordStore)
         terminalSessionModels[sessionID] = model
         return model
     }

@@ -60,13 +60,14 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
     private weak var terminalView: TerminalView?
     private let transport = SSHPTYTransport()
     private let knownHostsService = KnownHostsService()
-    private let passwordStore = SessionPasswordStore()
+    private let passwordStore: SessionPasswordStore
     private var startedSessionID: UUID?
     private var pendingSession: SSHSessionProfile?
     private var pendingConnectedHandler: ((UUID) -> Void)?
     private var transferBannerResetTask: Task<Void, Never>?
 
-    override init() {
+    init(passwordStore: SessionPasswordStore = SessionPasswordStore()) {
+        self.passwordStore = passwordStore
         super.init()
         transport.delegate = self
     }
