@@ -23,6 +23,7 @@
 		100000000000000000000026 /* ZModemSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000000E /* ZModemSupport.swift */; };
 		100000000000000000000027 /* KnownHostsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000000F /* KnownHostsService.swift */; };
 		100000000000000000000028 /* SessionPasswordStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000010 /* SessionPasswordStore.swift */; };
+		100000000000000000000029 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000002A /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -51,6 +52,7 @@
 		10000000000000000000000E /* ZModemSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZModemSupport.swift; sourceTree = "<group>"; };
 		10000000000000000000000F /* KnownHostsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KnownHostsService.swift; sourceTree = "<group>"; };
 		100000000000000000000010 /* SessionPasswordStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPasswordStore.swift; sourceTree = "<group>"; };
+		10000000000000000000002A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		100000000000000000000060 /* ShellX.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = ShellX.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		100000000000000000000061 /* ShellXTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = ShellXTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -86,6 +88,7 @@
 		100000000000000000000081 /* ShellX */ = {
 			isa = PBXGroup;
 			children = (
+				10000000000000000000002A /* Assets.xcassets */,
 				100000000000000000000084 /* App */,
 				100000000000000000000085 /* Models */,
 				100000000000000000000086 /* Storage */,
@@ -257,6 +260,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				100000000000000000000029 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -336,6 +340,7 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = ShellX;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
@@ -361,6 +366,7 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = ShellX;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";

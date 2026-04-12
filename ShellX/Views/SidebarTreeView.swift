@@ -93,22 +93,23 @@ private struct AllSessionsRow: View {
             appModel.selectedFolderID = nil
             appModel.syncSelectionToVisibleSessions()
         }
-        .dropDestination(for: String.self) { items, _ in
-            handleDrop(items, to: nil)
+        .onDrop(of: [SidebarDragItem.itemType.identifier], isTargeted: nil) { providers in
+            handleDrop(providers, to: nil)
         }
         .listRowInsets(EdgeInsets())
         .listRowBackground(rowBackground(isSelected: appModel.selectedFolderID == nil))
     }
 
-    private func handleDrop(_ items: [String], to folderID: UUID?) -> Bool {
-        guard let item = items.compactMap(SidebarDragItem.init(payload:)).first else { return false }
-        switch item {
-        case .folder(let draggedFolderID):
-            appModel.moveFolder(draggedFolderID, to: folderID)
-        case .session(let draggedSessionID):
-            appModel.moveSession(draggedSessionID, to: folderID)
+    private func handleDrop(_ providers: [NSItemProvider], to folderID: UUID?) -> Bool {
+        SidebarDragItem.load(from: providers.first) { item in
+            switch item {
+            case .folder(let draggedFolderID):
+                appModel.moveFolder(draggedFolderID, to: folderID)
+            case .session(let draggedSessionID):
+                appModel.moveSession(draggedSessionID, to: folderID)
+            }
         }
-        return true
+        return !providers.isEmpty
     }
 
     private func rowBackground(isSelected: Bool) -> Color {
@@ -179,9 +180,11 @@ private struct FolderBranchView: View {
                 appModel.selectedFolderID = node.folder.id
                 appModel.syncSelectionToVisibleSessions()
             }
-            .draggable(SidebarDragItem.folder(node.folder.id).payload)
-            .dropDestination(for: String.self) { items, _ in
-                handleDrop(items, to: node.folder.id)
+            .onDrag {
+                NSItemProvider(object: SidebarDragItem.folder(node.folder.id).payload as NSString)
+            }
+            .onDrop(of: [SidebarDragItem.itemType.identifier], isTargeted: nil) { providers in
+                handleDrop(providers, to: node.folder.id)
             }
             .contextMenu {
                 Button("新建会话") {
@@ -204,15 +207,16 @@ private struct FolderBranchView: View {
         }
     }
 
-    private func handleDrop(_ items: [String], to folderID: UUID?) -> Bool {
-        guard let item = items.compactMap(SidebarDragItem.init(payload:)).first else { return false }
-        switch item {
-        case .folder(let draggedFolderID):
-            appModel.moveFolder(draggedFolderID, to: folderID)
-        case .session(let draggedSessionID):
-            appModel.moveSession(draggedSessionID, to: folderID)
+    private func handleDrop(_ providers: [NSItemProvider], to folderID: UUID?) -> Bool {
+        SidebarDragItem.load(from: providers.first) { item in
+            switch item {
+            case .folder(let draggedFolderID):
+                appModel.moveFolder(draggedFolderID, to: folderID)
+            case .session(let draggedSessionID):
+                appModel.moveSession(draggedSessionID, to: folderID)
+            }
         }
-        return true
+        return !providers.isEmpty
     }
 
     private func rowBackground(isSelected: Bool) -> Color {
@@ -248,7 +252,9 @@ private struct SessionTreeRow: View {
             appModel.selectedSessionID = session.id
             onConnectSession(session)
         }
-        .draggable(SidebarDragItem.session(session.id).payload)
+        .onDrag {
+            NSItemProvider(object: SidebarDragItem.session(session.id).payload as NSString)
+        }
         .contextMenu {
             Button("连接") {
                 onConnectSession(session)
@@ -270,5 +276,32 @@ private struct SessionTreeRow: View {
 
     private func rowBackground(isSelected: Bool) -> Color {
         isSelected ? Color.accentColor.opacity(0.16) : .clear
+    }
+}
+
+private extension SidebarDragItem {
+    static func load(from provider: NSItemProvider?, perform: @escaping (SidebarDragItem) -> Void) {
+        guard let provider,
+              provider.hasItemConformingToTypeIdentifier(itemType.identifier) else {
+            return
+        }
+
+        provider.loadItem(forTypeIdentifier: itemType.identifier, options: nil) { item, _ in
+            let payload: String?
+            if let data = item as? Data {
+                payload = String(data: data, encoding: .utf8)
+            } else if let string = item as? String {
+                payload = string
+            } else if let string = item as? NSString {
+                payload = string as String
+            } else {
+                payload = nil
+            }
+
+            guard let payload, let dragItem = SidebarDragItem(payload: payload) else { return }
+            DispatchQueue.main.async {
+                perform(dragItem)
+            }
+        }
     }
 }
