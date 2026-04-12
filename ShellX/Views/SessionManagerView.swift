@@ -228,6 +228,25 @@ private struct TerminalTabWorkspaceView: View {
                                 appModel.selectedSessionID = session.id
                                 sessionModel.terminate()
                             }
+                            Divider()
+                            Button("SFTP 上传文件/文件夹") {
+                                appModel.activeTerminalSessionID = session.id
+                                appModel.selectedSessionID = session.id
+                                sessionModel.requestSFTPUpload()
+                            }
+                            .disabled(sessionModel.connectionState != .connected)
+                            Button("SFTP 下载文件") {
+                                appModel.activeTerminalSessionID = session.id
+                                appModel.selectedSessionID = session.id
+                                sessionModel.requestSFTPDownloadFile()
+                            }
+                            .disabled(sessionModel.connectionState != .connected)
+                            Button("SFTP 下载文件夹") {
+                                appModel.activeTerminalSessionID = session.id
+                                appModel.selectedSessionID = session.id
+                                sessionModel.requestSFTPDownloadDirectory()
+                            }
+                            .disabled(sessionModel.connectionState != .connected)
                             Button("复制调试") {
                                 let passwordStoreDebug = SessionPasswordStore.debugSnapshot()
                                 let debugText = [

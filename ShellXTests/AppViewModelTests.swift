@@ -150,6 +150,64 @@ final class AppViewModelTests: XCTestCase {
         XCTAssertTrue(args.contains("ops@example.com"))
     }
 
+    func testSFTPArgumentsReusePrivateKeyAndKnownHostsOptions() {
+        let session = SSHSessionProfile(
+            name: "prod-sftp",
+            host: "example.com",
+            port: 2222,
+            username: "ops",
+            authMethod: .privateKey,
+            privateKeyPath: "~/.ssh/id_ed25519",
+            useKeychainForPrivateKey: true
+        )
+
+        let args = SFTPTransferService.sftpArguments(
+            for: session,
+            userKnownHostsPath: "/tmp/shellx-known_hosts"
+        )
+
+        XCTAssertEqual(args.prefix(2), ["-P", "2222"])
+        XCTAssertTrue(args.contains("UserKnownHostsFile=/tmp/shellx-known_hosts"))
+        XCTAssertTrue(args.contains("StrictHostKeyChecking=no"))
+        XCTAssertTrue(args.contains("UseKeychain=yes"))
+        XCTAssertTrue(args.contains("IdentitiesOnly=yes"))
+        XCTAssertTrue(args.contains("-i"))
+        XCTAssertTrue(args.contains("ops@example.com"))
+    }
+
+    func testSFTPCommandScriptUsesRecursivePutForDirectories() {
+        let operation = SFTPOperation.upload(
+            localURL: URL(fileURLWithPath: "/tmp/demo-folder", isDirectory: true),
+            remoteDirectory: "/srv/uploads"
+        )
+
+        let script = SFTPTransferService.commandScript(for: operation)
+
+        XCTAssertTrue(script.contains("put -r"))
+        XCTAssertTrue(script.contains("\"/tmp/demo-folder\""))
+        XCTAssertTrue(script.contains("\"/srv/uploads\""))
+        XCTAssertTrue(script.hasSuffix("bye\n"))
+    }
+
+    func testSFTPCommandScriptDistinguishesFileAndDirectoryDownloads() {
+        let fileScript = SFTPTransferService.commandScript(
+            for: .downloadFile(
+                remotePath: "/srv/file.txt",
+                localDirectory: URL(fileURLWithPath: "/tmp")
+            )
+        )
+        let directoryScript = SFTPTransferService.commandScript(
+            for: .downloadDirectory(
+                remotePath: "/srv/assets",
+                localDirectory: URL(fileURLWithPath: "/tmp")
+            )
+        )
+
+        XCTAssertTrue(fileScript.contains("get \"/srv/file.txt\""))
+        XCTAssertFalse(fileScript.contains("get -r"))
+        XCTAssertTrue(directoryScript.contains("get -r \"/srv/assets\""))
+    }
+
     func testSessionProfileDecodeBackfillsUseKeychainDefault() throws {
         let json = """
         {

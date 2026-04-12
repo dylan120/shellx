@@ -31,6 +31,21 @@ struct SSHPasswordPrompt: Identifiable, Equatable {
     let message: String
 }
 
+struct SFTPPathPrompt: Identifiable, Equatable {
+    enum Kind: Equatable {
+        case upload(localURL: URL)
+        case downloadFile
+        case downloadDirectory
+    }
+
+    let id = UUID()
+    let sessionName: String
+    let title: String
+    let message: String
+    let defaultPath: String
+    let kind: Kind
+}
+
 enum ZModemSelectionRequest: Identifiable, Equatable {
     case upload
     case download
@@ -45,8 +60,22 @@ enum ZModemSelectionRequest: Identifiable, Equatable {
     }
 }
 
+enum SFTPLocalSelectionRequest: Identifiable, Equatable {
+    case uploadSource
+    case downloadDestination(remotePath: String, recursive: Bool)
+
+    var id: String {
+        switch self {
+        case .uploadSource:
+            return "uploadSource"
+        case .downloadDestination(let remotePath, let recursive):
+            return "downloadDestination-\(remotePath)-\(recursive)"
+        }
+    }
+}
+
 @MainActor
-final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTransportDelegate {
+final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTransportDelegate, SFTPTransferServiceDelegate {
     @Published var connectionState: TerminalConnectionState = .idle
     @Published var terminalTitle = "SSH 控制台"
     @Published var workingDirectory: String?
@@ -55,21 +84,27 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
     @Published var hostKeyPrompt: KnownHostPrompt?
     @Published var passwordPrompt: SSHPasswordPrompt?
     @Published var zmodemSelectionRequest: ZModemSelectionRequest?
+    @Published var sftpPathPrompt: SFTPPathPrompt?
+    @Published var sftpLocalSelectionRequest: SFTPLocalSelectionRequest?
     @Published var terminalDebugSnapshot = ""
 
     private weak var terminalView: TerminalView?
     private let transport = SSHPTYTransport()
+    private let sftpService = SFTPTransferService()
     private let knownHostsService = KnownHostsService()
     private let passwordStore: SessionPasswordStore
     private var startedSessionID: UUID?
+    private var activeSession: SSHSessionProfile?
     private var pendingSession: SSHSessionProfile?
     private var pendingConnectedHandler: ((UUID) -> Void)?
+    private var pendingPasswordHandler: ((String) -> Void)?
     private var transferBannerResetTask: Task<Void, Never>?
 
     init(passwordStore: SessionPasswordStore = SessionPasswordStore()) {
         self.passwordStore = passwordStore
         super.init()
         transport.delegate = self
+        sftpService.delegate = self
     }
 
     func attachTerminalView(_ terminalView: TerminalView) {
@@ -94,12 +129,16 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
 
     func terminate() {
         transport.terminate()
+        sftpService.terminate()
         cancelTransferBannerReset()
         if case .connected = connectionState {
             connectionState = .disconnected
         }
         transferState = .idle
         hostKeyPrompt = nil
+        sftpPathPrompt = nil
+        sftpLocalSelectionRequest = nil
+        activeSession = nil
     }
 
     static func sshArguments(
@@ -144,6 +183,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
 
     func transportDidTerminate(exitCode: Int32?) {
         startedSessionID = nil
+        activeSession = nil
         workingDirectory = nil
         cancelTransferBannerReset()
         transferState = .idle
@@ -234,8 +274,16 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
 
     func submitPasswordAndContinue(_ password: String) {
         let trimmedPassword = password.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedPassword.isEmpty,
-              let pendingSession,
+        guard !trimmedPassword.isEmpty else { return }
+
+        if let pendingPasswordHandler {
+            passwordPrompt = nil
+            self.pendingPasswordHandler = nil
+            pendingPasswordHandler(trimmedPassword)
+            return
+        }
+
+        guard let pendingSession,
               let pendingConnectedHandler else { return }
 
         if pendingSession.authMethod == .password {
@@ -259,7 +307,15 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
     }
 
     func cancelPasswordPrompt() {
+        if pendingPasswordHandler != nil {
+            passwordPrompt = nil
+            pendingPasswordHandler = nil
+            lastExitMessage = "已取消 SFTP 密码输入。"
+            scheduleTransferBannerReset(message: "已取消 SFTP 密码输入。")
+            return
+        }
         passwordPrompt = nil
+        pendingPasswordHandler = nil
         pendingSession = nil
         pendingConnectedHandler = nil
         connectionState = .failed("已取消密码输入")
@@ -297,6 +353,95 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         zmodemSelectionRequest = nil
     }
 
+    func requestSFTPUpload() {
+        guard case .connected = connectionState else {
+            lastExitMessage = "只有已连接的会话才能发起 SFTP 传输。"
+            return
+        }
+        cancelTransferBannerReset()
+        lastExitMessage = "正在选择要通过 SFTP 上传的本地文件或文件夹。"
+        sftpLocalSelectionRequest = .uploadSource
+    }
+
+    func requestSFTPDownloadFile() {
+        guard case .connected = connectionState else {
+            lastExitMessage = "只有已连接的会话才能发起 SFTP 传输。"
+            return
+        }
+        sftpPathPrompt = SFTPPathPrompt(
+            sessionName: terminalTitle,
+            title: "SFTP 下载文件",
+            message: "请输入要从远端下载的文件路径，然后选择本地保存目录。",
+            defaultPath: workingDirectory ?? ".",
+            kind: .downloadFile
+        )
+    }
+
+    func requestSFTPDownloadDirectory() {
+        guard case .connected = connectionState else {
+            lastExitMessage = "只有已连接的会话才能发起 SFTP 传输。"
+            return
+        }
+        sftpPathPrompt = SFTPPathPrompt(
+            sessionName: terminalTitle,
+            title: "SFTP 下载文件夹",
+            message: "请输入要从远端递归下载的文件夹路径，然后选择本地保存目录。",
+            defaultPath: workingDirectory ?? ".",
+            kind: .downloadDirectory
+        )
+    }
+
+    func handleSFTPLocalSelection(_ result: Result<URL, Error>) {
+        let request = sftpLocalSelectionRequest
+        sftpLocalSelectionRequest = nil
+
+        switch result {
+        case .success(let url):
+            guard let request else { return }
+            switch request {
+            case .uploadSource:
+                sftpPathPrompt = SFTPPathPrompt(
+                    sessionName: terminalTitle,
+                    title: "SFTP 上传目标路径",
+                    message: "请输入远端保存目录。若留空，将使用当前远端目录。",
+                    defaultPath: workingDirectory ?? ".",
+                    kind: .upload(localURL: url)
+                )
+            case .downloadDestination(let remotePath, let recursive):
+                if recursive {
+                    beginSFTPDownload(remotePath: remotePath, localDirectory: url, recursive: true)
+                } else {
+                    beginSFTPDownload(remotePath: remotePath, localDirectory: url, recursive: false)
+                }
+            }
+        case .failure:
+            lastExitMessage = "已取消 SFTP 路径选择。"
+            scheduleTransferBannerReset(message: "已取消 SFTP 路径选择。")
+        }
+    }
+
+    func handleSFTPPathPromptConfirm(_ prompt: SFTPPathPrompt, path: String) {
+        let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        sftpPathPrompt = nil
+
+        switch prompt.kind {
+        case .upload(let localURL):
+            beginSFTPUpload(localURL: localURL, remoteDirectory: trimmedPath)
+        case .downloadFile:
+            lastExitMessage = "正在选择 SFTP 下载目标目录。"
+            sftpLocalSelectionRequest = .downloadDestination(remotePath: trimmedPath, recursive: false)
+        case .downloadDirectory:
+            lastExitMessage = "正在选择 SFTP 下载目标目录。"
+            sftpLocalSelectionRequest = .downloadDestination(remotePath: trimmedPath, recursive: true)
+        }
+    }
+
+    func handleSFTPPathPromptCancel() {
+        sftpPathPrompt = nil
+        lastExitMessage = "已取消 SFTP 传输。"
+        scheduleTransferBannerReset(message: "已取消 SFTP 传输。")
+    }
+
     private func start(session: SSHSessionProfile, onConnected: @escaping (UUID) -> Void) {
         guard terminalView != nil else {
             pendingSession = session
@@ -306,6 +451,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         }
 
         startedSessionID = session.id
+        activeSession = session
         terminalTitle = session.name
         workingDirectory = nil
         lastExitMessage = nil
@@ -462,6 +608,95 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         zmodemSelectionRequest = .download
     }
 
+    private func beginSFTPUpload(localURL: URL, remoteDirectory: String) {
+        guard let session = currentSession else { return }
+        resolvePasswordIfNeeded(for: session) { [weak self] password in
+            guard let self else { return }
+            self.startSFTPOperation(
+                .upload(localURL: localURL, remoteDirectory: remoteDirectory),
+                session: session,
+                passwordOverride: password
+            )
+        }
+    }
+
+    private func beginSFTPDownload(remotePath: String, localDirectory: URL, recursive: Bool) {
+        guard let session = currentSession else { return }
+        let operation: SFTPOperation = recursive
+            ? .downloadDirectory(remotePath: remotePath, localDirectory: localDirectory)
+            : .downloadFile(remotePath: remotePath, localDirectory: localDirectory)
+        resolvePasswordIfNeeded(for: session) { [weak self] password in
+            guard let self else { return }
+            self.startSFTPOperation(operation, session: session, passwordOverride: password)
+        }
+    }
+
+    private func startSFTPOperation(
+        _ operation: SFTPOperation,
+        session: SSHSessionProfile,
+        passwordOverride: String?
+    ) {
+        do {
+            let knownHostsPath = try KnownHostsService.defaultKnownHostsFilePath()
+            sftpService.start(
+                session: session,
+                operation: operation,
+                knownHostsPath: knownHostsPath,
+                password: passwordOverride
+            )
+        } catch {
+            lastExitMessage = "启动 SFTP 失败：\(error.localizedDescription)"
+            scheduleTransferBannerReset(message: "启动 SFTP 失败：\(error.localizedDescription)")
+        }
+    }
+
+    private func resolvePasswordIfNeeded(
+        for session: SSHSessionProfile,
+        onResolved: @escaping (String?) -> Void
+    ) {
+        guard session.authMethod == .password else {
+            onResolved(nil)
+            return
+        }
+
+        if let cachedPassword = passwordStore.cachedPassword(for: session.id), !cachedPassword.isEmpty {
+            onResolved(cachedPassword)
+            return
+        }
+
+        if session.passwordStoredInKeychain {
+            do {
+                if let password = try passwordStore.loadPassword(for: session.id), !password.isEmpty {
+                    onResolved(password)
+                    return
+                }
+            } catch {
+                lastExitMessage = "读取系统 Keychain 中的密码失败：\(error.localizedDescription)。请先输入本次传输密码。"
+            }
+        }
+
+        passwordPrompt = SSHPasswordPrompt(
+            sessionName: session.name,
+            message: "当前 SFTP 传输需要 SSH 密码。请输入一次本次传输密码；如果该会话开启了“保存到系统 Keychain”，ShellX 会在本次输入后重新写入。"
+        )
+        pendingPasswordHandler = { [weak self] password in
+            guard let self else { return }
+            self.passwordStore.cachePassword(password, for: session.id)
+            if session.passwordStoredInKeychain {
+                do {
+                    try self.passwordStore.savePassword(password, for: session.id)
+                } catch {
+                    self.lastExitMessage = "保存到系统 Keychain 失败：\(error.localizedDescription)。本次 SFTP 传输仍会继续。"
+                }
+            }
+            onResolved(password)
+        }
+    }
+
+    private var currentSession: SSHSessionProfile? {
+        activeSession
+    }
+
     private func scheduleTransferBannerReset(message: String, delaySeconds: Double = 3) {
         cancelTransferBannerReset()
         transferBannerResetTask = Task { @MainActor [weak self] in
@@ -482,6 +717,21 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
     private func cancelTransferBannerReset() {
         transferBannerResetTask?.cancel()
         transferBannerResetTask = nil
+    }
+
+    func sftpTransferDidStart(message: String) {
+        cancelTransferBannerReset()
+        lastExitMessage = message
+    }
+
+    func sftpTransferDidComplete(message: String) {
+        lastExitMessage = message
+        scheduleTransferBannerReset(message: message)
+    }
+
+    func sftpTransferDidFail(message: String) {
+        lastExitMessage = message
+        scheduleTransferBannerReset(message: message, delaySeconds: 5)
     }
 }
 

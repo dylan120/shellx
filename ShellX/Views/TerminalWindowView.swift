@@ -38,7 +38,9 @@ struct TerminalWindowView: View {
                     .background(Color(nsColor: .textBackgroundColor))
 
                 if let bannerText = sessionModel.transferState.bannerText ?? sessionModel.lastExitMessage,
-                   sessionModel.connectionState != .connected || sessionModel.transferState != .idle {
+                   sessionModel.connectionState != .connected
+                    || sessionModel.transferState != .idle
+                    || sessionModel.lastExitMessage != nil {
                     ErrorBannerView(message: bannerText)
                         .padding(12)
                 }
@@ -112,9 +114,24 @@ struct TerminalWindowView: View {
                 }
             )
         }
+        .sheet(item: $sessionModel.sftpPathPrompt) { prompt in
+            SFTPPathPromptSheet(
+                prompt: prompt,
+                onConfirm: { path in
+                    sessionModel.handleSFTPPathPromptConfirm(prompt, path: path)
+                },
+                onCancel: {
+                    sessionModel.handleSFTPPathPromptCancel()
+                }
+            )
+        }
         .onChange(of: sessionModel.zmodemSelectionRequest) { _, request in
             guard let request else { return }
             presentZModemSelection(request)
+        }
+        .onChange(of: sessionModel.sftpLocalSelectionRequest) { _, request in
+            guard let request else { return }
+            presentSFTPLocalSelection(request)
         }
         .sheet(isPresented: $showingErrorDetails) {
             ErrorDetailSheet(message: sessionModel.lastExitMessage ?? failureMessage ?? "未知错误")
@@ -184,6 +201,45 @@ struct TerminalWindowView: View {
         DispatchQueue.main.async {
             // 统一走独立模态窗口，避免主窗口标签页、SwiftUI 和 SwiftTerm 共同参与事件分发时
             // 出现“面板显示出来但无法点击”的焦点链异常。
+            handleResult(panel.runModal())
+        }
+    }
+
+    @MainActor
+    private func presentSFTPLocalSelection(_ request: SFTPLocalSelectionRequest) {
+        guard !isPresentingZModemPanel else { return }
+        isPresentingZModemPanel = true
+        NSApp.activate(ignoringOtherApps: true)
+
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.resolvesAliases = true
+
+        switch request {
+        case .uploadSource:
+            panel.canChooseFiles = true
+            panel.canChooseDirectories = true
+            panel.canCreateDirectories = false
+            panel.message = "选择要通过 SFTP 上传的本地文件或文件夹"
+            panel.prompt = "选择"
+        case .downloadDestination:
+            panel.canChooseFiles = false
+            panel.canChooseDirectories = true
+            panel.canCreateDirectories = true
+            panel.message = "选择通过 SFTP 下载后的本地保存目录"
+            panel.prompt = "选择目录"
+        }
+
+        let handleResult: (NSApplication.ModalResponse) -> Void = { response in
+            isPresentingZModemPanel = false
+            if response == .OK, let url = panel.url {
+                sessionModel.handleSFTPLocalSelection(.success(url))
+            } else {
+                sessionModel.handleSFTPLocalSelection(.failure(CocoaError(.userCancelled)))
+            }
+        }
+
+        DispatchQueue.main.async {
             handleResult(panel.runModal())
         }
     }
@@ -291,6 +347,53 @@ private struct SSHPasswordPromptSheet: View {
         }
         .padding(20)
         .frame(width: 460)
+    }
+}
+
+private struct SFTPPathPromptSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var path = ""
+
+    let prompt: SFTPPathPrompt
+    let onConfirm: (String) -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(prompt.title)
+                .font(.title2.weight(.semibold))
+
+            Text("会话：\(prompt.sessionName)")
+                .foregroundStyle(.secondary)
+
+            Text(prompt.message)
+
+            TextField("远端路径", text: $path)
+                .textFieldStyle(.roundedBorder)
+
+            Text("留空时默认使用当前远端目录。下载文件夹时会使用递归传输。")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            HStack {
+                Spacer()
+                Button("取消") {
+                    onCancel()
+                    dismiss()
+                }
+                Button("继续") {
+                    onConfirm(path.isEmpty ? prompt.defaultPath : path)
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 480)
+        .onAppear {
+            path = prompt.defaultPath
+        }
     }
 }
 
