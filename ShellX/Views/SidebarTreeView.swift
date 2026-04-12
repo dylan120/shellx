@@ -9,6 +9,10 @@ struct SidebarTreeView: View {
     var body: some View {
         List(selection: $appModel.selectedFolderID) {
             Label("全部会话", systemImage: "tray.full")
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    appModel.selectedFolderID = nil
+                }
                 .tag(Optional<UUID>.none)
 
             ForEach(appModel.rootFolders) { node in
@@ -64,20 +68,19 @@ private struct FolderBranchView: View {
             .onTapGesture {
                 appModel.selectedFolderID = node.folder.id
             }
-            .contextMenu {
-                Button("新建子文件夹") {
-                    onAddSubfolder(node.folder)
-                }
-                Button("重命名") {
-                    onRenameFolder(node.folder)
-                }
-                Divider()
-                Button("删除", role: .destructive) {
-                    onDeleteFolder(node.folder)
-                }
-            }
         }
         .tag(Optional(node.folder.id))
+        .contextMenu {
+            Button("新建子文件夹") {
+                onAddSubfolder(node.folder)
+            }
+            Button("重命名") {
+                onRenameFolder(node.folder)
+            }
+            Divider()
+            Button("删除", role: .destructive) {
+                onDeleteFolder(node.folder)
+            }
+        }
     }
 }
-

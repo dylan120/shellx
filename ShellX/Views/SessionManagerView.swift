@@ -58,7 +58,12 @@ struct SessionManagerView: View {
                         }
                         .padding(.vertical, 4)
                         .contentShape(Rectangle())
+                        .tag(Optional(session.id))
+                        .onTapGesture {
+                            appModel.selectedSessionID = session.id
+                        }
                         .onTapGesture(count: 2) {
+                            appModel.selectedSessionID = session.id
                             openTerminal(for: session)
                         }
                         .contextMenu {
@@ -246,6 +251,17 @@ private struct TerminalTabWorkspaceView: View {
                         TerminalWindowView(session: session)
                             .opacity(appModel.activeTerminalSessionID == session.id ? 1 : 0)
                             .allowsHitTesting(appModel.activeTerminalSessionID == session.id)
+                    }
+                }
+                .overlay(alignment: .topTrailing) {
+                    if let selectedSession = appModel.selectedSession,
+                       selectedSession.id != appModel.activeTerminalSessionID {
+                        Text("当前左侧选中：\(selectedSession.name)")
+                            .font(.caption)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(.thinMaterial, in: Capsule())
+                            .padding(12)
                     }
                 }
             } else {

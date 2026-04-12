@@ -399,6 +399,8 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
     }
 
     private func handleUploadTrigger() {
+        lastExitMessage = "已检测到 rz 上传请求，正在打开本地文件选择窗口。"
+        NSApp.activate(ignoringOtherApps: true)
         let panel = NSOpenPanel()
         panel.message = "选择要通过 lrzsz 上传到远端的文件"
         panel.allowsMultipleSelection = false
@@ -415,6 +417,8 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, TerminalViewDe
     }
 
     private func handleDownloadTrigger() {
+        lastExitMessage = "已检测到 sz 下载请求，正在打开保存目录选择窗口。"
+        NSApp.activate(ignoringOtherApps: true)
         let panel = NSOpenPanel()
         panel.message = "选择接收 lrzsz 下载文件的目录"
         panel.allowsMultipleSelection = false

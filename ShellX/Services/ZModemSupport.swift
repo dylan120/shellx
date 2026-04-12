@@ -42,6 +42,8 @@ enum ZModemTrigger: Equatable {
 
 struct ZModemTriggerDetector {
     private let maxBufferLength = 4096
+    private let uploadPattern = #"rz waiting to receive\.\*\*B01[0-9A-Fa-f]{8,}"#
+    private let downloadPattern = #"\*\*B0{14,}[0-9A-Fa-f]*"#
     private(set) var buffer = ""
 
     mutating func consume(_ data: Data) -> ZModemTrigger? {
@@ -51,12 +53,12 @@ struct ZModemTriggerDetector {
             buffer = String(buffer.suffix(maxBufferLength))
         }
 
-        if buffer.range(of: #"rz waiting to receive\.\*\*B0100"#, options: .regularExpression) != nil {
+        if buffer.range(of: uploadPattern, options: .regularExpression) != nil {
             buffer.removeAll(keepingCapacity: true)
             return .uploadRequest
         }
 
-        if buffer.contains("**B00000000000000") {
+        if buffer.range(of: downloadPattern, options: .regularExpression) != nil {
             buffer.removeAll(keepingCapacity: true)
             return .downloadRequest
         }
@@ -84,4 +86,3 @@ enum ZModemHelperLocator {
 enum ZModemControlBytes {
     static let cancel = Data([0x18, 0x18, 0x18, 0x18, 0x18])
 }
-
