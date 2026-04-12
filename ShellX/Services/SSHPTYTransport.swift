@@ -26,6 +26,29 @@ final class SSHPTYTransport {
     private var pendingTrigger: ZModemTrigger?
     private var pendingData = Data()
     private var transferDirection: ZModemTransferDirection?
+
+    // Swift 无法稳定直接导入 wait(2) 相关 C 宏，这里按 Darwin 的状态位规则自行解析。
+    private static func waitStatus(_ status: Int32) -> Int32 {
+        status & 0o177
+    }
+
+    private static func didExit(_ status: Int32) -> Bool {
+        waitStatus(status) == 0
+    }
+
+    private static func exitStatus(_ status: Int32) -> Int32 {
+        (status >> 8) & 0xFF
+    }
+
+    private static func didTerminateBySignal(_ status: Int32) -> Bool {
+        let signal = waitStatus(status)
+        return signal != 0 && signal != 0o177
+    }
+
+    private static func terminationSignal(_ status: Int32) -> Int32 {
+        waitStatus(status)
+    }
+
     deinit {
         terminate()
     }
@@ -191,10 +214,10 @@ final class SSHPTYTransport {
 
         cleanupReadResources()
         let exitCode: Int32?
-        if WIFEXITED(status) {
-            exitCode = WEXITSTATUS(status)
-        } else if WIFSIGNALED(status) {
-            exitCode = 128 + WTERMSIG(status)
+        if Self.didExit(status) {
+            exitCode = Self.exitStatus(status)
+        } else if Self.didTerminateBySignal(status) {
+            exitCode = 128 + Self.terminationSignal(status)
         } else {
             exitCode = nil
         }
