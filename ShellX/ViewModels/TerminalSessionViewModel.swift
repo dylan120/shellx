@@ -471,45 +471,60 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
     }
 }
 
-@preconcurrency
 extension TerminalSessionViewModel: TerminalViewDelegate {
-    func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
-        transport.resize(cols: newCols, rows: newRows)
+    nonisolated func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
+        Task { @MainActor [weak self] in
+            self?.transport.resize(cols: newCols, rows: newRows)
+        }
     }
 
-    func setTerminalTitle(source: TerminalView, title: String) {
-        terminalTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "SSH 控制台" : title
+    nonisolated func setTerminalTitle(source: TerminalView, title: String) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.terminalTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "SSH 控制台" : title
+        }
     }
 
-    func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {
-        workingDirectory = directory
+    nonisolated func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {
+        Task { @MainActor [weak self] in
+            self?.workingDirectory = directory
+        }
     }
 
-    func send(source: TerminalView, data: ArraySlice<UInt8>) {
-        transport.send(Data(data))
+    nonisolated func send(source: TerminalView, data: ArraySlice<UInt8>) {
+        let buffer = Data(data)
+        Task { @MainActor [weak self] in
+            self?.transport.send(buffer)
+        }
     }
 
-    func scrolled(source: TerminalView, position: Double) {
+    nonisolated func scrolled(source: TerminalView, position: Double) {
     }
 
-    func requestOpenLink(source: TerminalView, link: String, params: [String : String]) {
+    nonisolated func requestOpenLink(source: TerminalView, link: String, params: [String : String]) {
         guard let url = URL(string: link) else { return }
-        NSWorkspace.shared.open(url)
+        Task { @MainActor in
+            NSWorkspace.shared.open(url)
+        }
     }
 
-    func bell(source: TerminalView) {
-        NSSound.beep()
+    nonisolated func bell(source: TerminalView) {
+        Task { @MainActor in
+            NSSound.beep()
+        }
     }
 
-    func clipboardCopy(source: TerminalView, content: Data) {
+    nonisolated func clipboardCopy(source: TerminalView, content: Data) {
         guard let string = String(data: content, encoding: .utf8) else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(string, forType: .string)
+        Task { @MainActor in
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(string, forType: .string)
+        }
     }
 
-    func iTermContent(source: TerminalView, content: ArraySlice<UInt8>) {
+    nonisolated func iTermContent(source: TerminalView, content: ArraySlice<UInt8>) {
     }
 
-    func rangeChanged(source: TerminalView, startY: Int, endY: Int) {
+    nonisolated func rangeChanged(source: TerminalView, startY: Int, endY: Int) {
     }
 }
