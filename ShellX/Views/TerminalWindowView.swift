@@ -104,8 +104,8 @@ struct TerminalWindowView: View {
     }
 
     private func connect() {
-        sessionModel.reconnect(session: session) {
-            appModel.markConnected(sessionID: session.id)
+        sessionModel.reconnect(session: session) { sessionID in
+            appModel.markConnected(sessionID: sessionID)
         }
     }
 }
