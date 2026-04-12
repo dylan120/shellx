@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 
+@MainActor
 protocol SSHPTYTransportDelegate: AnyObject {
     func transportDidReceive(_ data: Data)
     func transportDidTerminate(exitCode: Int32?)
@@ -74,7 +75,9 @@ final class SSHPTYTransport {
         let pid = forkpty(&fd, nil, nil, &windowSize)
 
         if pid < 0 {
-            delegate?.transportDidFail("无法创建 PTY")
+            notifyDelegate { delegate in
+                delegate.transportDidFail("无法创建 PTY")
+            }
             return
         }
 
@@ -85,7 +88,7 @@ final class SSHPTYTransport {
 
             var cStrings = (["/usr/bin/ssh"] + arguments).map { strdup($0) }
             cStrings.append(nil)
-            cStrings.withUnsafeMutableBufferPointer { buffer in
+            _ = cStrings.withUnsafeMutableBufferPointer { buffer in
                 execvp("/usr/bin/ssh", buffer.baseAddress)
             }
             _exit(127)
@@ -138,6 +141,13 @@ final class SSHPTYTransport {
         var windowSize = winsize(ws_row: UInt16(rows), ws_col: UInt16(cols), ws_xpixel: 0, ws_ypixel: 0)
         ioctl(masterFD, TIOCSWINSZ, &windowSize)
         lastWindowSize = (cols, rows)
+    }
+
+    private func notifyDelegate(_ action: @escaping @MainActor (SSHPTYTransportDelegate) -> Void) {
+        guard let delegate else { return }
+        Task { @MainActor in
+            action(delegate)
+        }
     }
 
     func terminate() {
@@ -243,14 +253,14 @@ final class SSHPTYTransport {
         if let trigger = zmodemDetector.consume(data, preferredDirection: preferredZModemDirection()) {
             pendingTrigger = trigger
             pendingData = Self.sanitizedTransferSeed(from: data, trigger: trigger)
-            DispatchQueue.main.async { [weak self] in
-                self?.delegate?.transportDidDetectZModem(trigger)
+            notifyDelegate { delegate in
+                delegate.transportDidDetectZModem(trigger)
             }
             return
         }
 
-        DispatchQueue.main.async { [weak self] in
-            self?.delegate?.transportDidReceive(data)
+        notifyDelegate { delegate in
+            delegate.transportDidReceive(data)
         }
     }
 
@@ -268,8 +278,8 @@ final class SSHPTYTransport {
             exitCode = nil
         }
 
-        DispatchQueue.main.async { [weak self] in
-            self?.delegate?.transportDidTerminate(exitCode: exitCode)
+        notifyDelegate { delegate in
+            delegate.transportDidTerminate(exitCode: exitCode)
         }
     }
 
@@ -284,8 +294,8 @@ final class SSHPTYTransport {
         guard let executable = ZModemHelperLocator.path(named: executableName) else {
             pendingTrigger = nil
             let message = "本机未找到 \(executableName) 命令，请先安装 lrzsz"
-            DispatchQueue.main.async { [weak self] in
-                self?.delegate?.transportDidFail(message)
+            notifyDelegate { delegate in
+                delegate.transportDidFail(message)
             }
             return
         }
@@ -335,8 +345,8 @@ final class SSHPTYTransport {
             pendingTrigger = nil
         } catch {
             cancelTransfer(sendCancel: true)
-            DispatchQueue.main.async { [weak self] in
-                self?.delegate?.transportDidFail("启动 \(executableName) 失败：\(error.localizedDescription)")
+            notifyDelegate { delegate in
+                delegate.transportDidFail("启动 \(executableName) 失败：\(error.localizedDescription)")
             }
         }
     }
@@ -402,12 +412,8 @@ final class SSHPTYTransport {
             message = "传输失败，退出码 \(status)"
         }
 
-        DispatchQueue.main.async { [weak self] in
-            if status == 0 {
-                self?.delegate?.transportDidFail(message)
-            } else {
-                self?.delegate?.transportDidFail(message)
-            }
+        notifyDelegate { delegate in
+            delegate.transportDidFail(message)
         }
     }
 
@@ -452,8 +458,8 @@ final class SSHPTYTransport {
         }
 
         let snapshot = debugTranscript
-        DispatchQueue.main.async { [weak self] in
-            self?.delegate?.transportDidUpdateDebugSnapshot(snapshot)
+        notifyDelegate { delegate in
+            delegate.transportDidUpdateDebugSnapshot(snapshot)
         }
     }
 

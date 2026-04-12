@@ -1,6 +1,6 @@
 import AppKit
 import Foundation
-import SwiftTerm
+@preconcurrency import SwiftTerm
 
 enum TerminalConnectionState: Equatable {
     case idle

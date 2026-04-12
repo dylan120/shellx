@@ -112,7 +112,7 @@ struct TerminalWindowView: View {
                 }
             )
         }
-        .onChange(of: sessionModel.zmodemSelectionRequest) { request in
+        .onChange(of: sessionModel.zmodemSelectionRequest) { _, request in
             guard let request else { return }
             presentZModemSelection(request)
         }
