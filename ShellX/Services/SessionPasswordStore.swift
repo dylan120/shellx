@@ -74,6 +74,15 @@ final class SessionPasswordStore {
         return password
     }
 
+    func cachedPassword(for sessionID: UUID) -> String? {
+        Self.cachedPasswords[sessionID]
+    }
+
+    func cachePassword(_ password: String, for sessionID: UUID) {
+        Self.cachedPasswords[sessionID] = password
+        Self.recordDiagnostic("cachePassword.memoryOnly", sessionID: sessionID)
+    }
+
     func hasPassword(for sessionID: UUID) -> Bool {
         (try? loadPassword(for: sessionID)) != nil
     }

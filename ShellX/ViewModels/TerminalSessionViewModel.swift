@@ -238,6 +238,11 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
               let pendingSession,
               let pendingConnectedHandler else { return }
 
+        if pendingSession.authMethod == .password {
+            // 账号密码模式优先复用本次输入的密码，避免同一进程内再次触发系统 Keychain 授权。
+            passwordStore.cachePassword(trimmedPassword, for: pendingSession.id)
+        }
+
         passwordPrompt = nil
         lastExitMessage = "正在使用本次输入的密码继续连接。"
         connectionState = .connecting
@@ -350,26 +355,16 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
             if let passwordOverride, !passwordOverride.isEmpty {
                 password = passwordOverride
             } else if session.passwordStoredInKeychain {
-                do {
-                    password = try passwordStore.loadPassword(for: session.id)
-                } catch {
+                if let cachedPassword = passwordStore.cachedPassword(for: session.id), !cachedPassword.isEmpty {
+                    password = cachedPassword
+                } else {
                     passwordPrompt = SSHPasswordPrompt(
                         sessionName: session.name,
-                        message: "读取系统 Keychain 中的 SSH 密码失败：\(error.localizedDescription)\n请改为输入本次连接密码。"
+                        message: "该会话已配置为使用系统 Keychain 保存密码。为避免 macOS 重复弹出“登录”钥匙串授权窗口，ShellX 当前不会在连接时自动读取系统 Keychain。\n\n请输入本次连接密码；本次输入会在当前应用运行期间复用。"
                     )
                     pendingSession = session
                     pendingConnectedHandler = onConnected
-                    connectionState = .failed("无法访问系统 Keychain，请输入本次连接密码。")
-                    return
-                }
-                if password?.isEmpty != false {
-                    passwordPrompt = SSHPasswordPrompt(
-                        sessionName: session.name,
-                        message: "没有找到已保存的 SSH 密码，请输入本次连接密码。"
-                    )
-                    pendingSession = session
-                    pendingConnectedHandler = onConnected
-                    connectionState = .failed("未找到已保存密码，请输入本次连接密码。")
+                    connectionState = .failed("请先输入本次连接密码。")
                     return
                 }
             } else {
