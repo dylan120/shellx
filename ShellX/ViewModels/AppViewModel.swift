@@ -321,20 +321,32 @@ final class AppViewModel: ObservableObject {
     }
 
     func duplicateTerminal(tabID: UUID) {
-        guard let tab = terminalTabs.first(where: { $0.id == tabID }) else { return }
+        guard let sourceIndex = terminalTabs.firstIndex(where: { $0.id == tabID }) else { return }
+        let tab = terminalTabs[sourceIndex]
+        let duplicatedTabID = UUID()
+        let insertionIndex = terminalTabs.index(after: sourceIndex)
+
         switch tab.kind {
         case .local(let shellPath, _):
-            let duplicatedTabID = UUID()
-            terminalTabs.append(
+            terminalTabs.insert(
                 TerminalTabState(
                     id: duplicatedTabID,
                     kind: .local(shellPath: shellPath, launchMode: .interactive)
-                )
+                ),
+                at: insertionIndex
             )
             activeTerminalTabID = duplicatedTabID
             selectedSessionID = nil
         case .ssh(let sessionID):
-            openTerminal(sessionID: sessionID)
+            terminalTabs.insert(
+                TerminalTabState(
+                    id: duplicatedTabID,
+                    kind: .ssh(sessionID: sessionID)
+                ),
+                at: insertionIndex
+            )
+            activeTerminalTabID = duplicatedTabID
+            selectedSessionID = sessionID
         }
     }
 

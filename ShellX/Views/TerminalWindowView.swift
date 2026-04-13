@@ -71,9 +71,20 @@ struct TerminalWindowView: View {
                 Label(sessionModel.terminalTitle, systemImage: "terminal")
                     .font(.subheadline.weight(.medium))
                 if let session {
-                    Text("\(session.destination):\(session.port)")
-                        .foregroundStyle(.secondary)
-                        .font(.caption)
+                    HStack(spacing: 6) {
+                        Text("\(session.destination):\(session.port)")
+                            .foregroundStyle(.secondary)
+                            .font(.caption)
+
+                        Button {
+                            sessionModel.copyConnectionHost(session.host)
+                        } label: {
+                            Image(systemName: "doc.on.doc")
+                                .font(.caption)
+                        }
+                        .buttonStyle(.borderless)
+                        .help("复制当前连接地址")
+                    }
                 } else if let localShellPath {
                     Text(localShellPath)
                         .foregroundStyle(.secondary)

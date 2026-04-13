@@ -151,7 +151,11 @@ final class ShellXTerminalView: TerminalView {
 
     private func handleCommandArrowKey(_ event: NSEvent) -> Bool {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard modifiers == .command else { return false }
+        // 方向键事件常常会附带 numericPad 等系统修饰位，不能再要求“严格等于 Command”，
+        // 否则 Command + Left/Right 会被误判为未命中，导致行首/行尾快捷键失效。
+        guard modifiers.contains(.command), !modifiers.contains(.option), !modifiers.contains(.control) else {
+            return false
+        }
 
         let controlByte: UInt8
         switch event.keyCode {

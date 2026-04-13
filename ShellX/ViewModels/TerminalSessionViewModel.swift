@@ -191,6 +191,15 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         terminalView.paste(self)
     }
 
+    func copyConnectionHost(_ host: String) {
+        let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedHost.isEmpty else { return }
+
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(trimmedHost, forType: .string)
+        showTransientBanner("已复制当前连接地址：\(trimmedHost)")
+    }
+
     func reconnect(session: SSHSessionProfile, onConnected: @escaping (UUID) -> Void) {
         terminate()
         start(session: session, onConnected: onConnected)
