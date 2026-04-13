@@ -38,7 +38,7 @@ struct TerminalWindowView: View {
     let allowsModalPresentation: Bool
 
     var body: some View {
-        let content = VStack(spacing: 0) {
+        VStack(spacing: 0) {
             ZStack(alignment: .bottomLeading) {
                 SwiftTermTerminalView(sessionModel: sessionModel)
                     .background(Color(nsColor: .textBackgroundColor))
@@ -120,57 +120,51 @@ struct TerminalWindowView: View {
                 connect()
             }
         }
-
-        if allowsModalPresentation {
-            // 终端标签会常驻保活；系统 sheet 只能挂在当前活动标签上，
-            // 否则隐藏标签也会争抢弹窗宿主，造成主机指纹窗口在多屏间跳动。
-            content
-                .sheet(item: $sessionModel.hostKeyPrompt) { prompt in
-                    HostKeyPromptSheet(
-                        prompt: prompt,
-                        onConfirm: {
-                            sessionModel.trustCurrentHostAndContinue()
-                        },
-                        onCancel: {
-                            sessionModel.cancelHostTrust()
-                        }
-                    )
+        // 终端标签会常驻保活；系统 sheet 只能挂在当前活动标签上，
+        // 这里通过稳定的条件绑定限制弹窗宿主，避免切换标签时重建 SwiftTerm 视图导致输出缓冲丢失。
+        .sheet(item: activeHostKeyPromptBinding) { prompt in
+            HostKeyPromptSheet(
+                prompt: prompt,
+                onConfirm: {
+                    sessionModel.trustCurrentHostAndContinue()
+                },
+                onCancel: {
+                    sessionModel.cancelHostTrust()
                 }
-                .sheet(item: $sessionModel.passwordPrompt) { prompt in
-                    SSHPasswordPromptSheet(
-                        prompt: prompt,
-                        onConfirm: { password in
-                            sessionModel.submitPasswordAndContinue(password)
-                        },
-                        onCancel: {
-                            sessionModel.cancelPasswordPrompt()
-                        }
-                    )
+            )
+        }
+        .sheet(item: activePasswordPromptBinding) { prompt in
+            SSHPasswordPromptSheet(
+                prompt: prompt,
+                onConfirm: { password in
+                    sessionModel.submitPasswordAndContinue(password)
+                },
+                onCancel: {
+                    sessionModel.cancelPasswordPrompt()
                 }
-                .sheet(item: $sessionModel.sftpPathPrompt) { prompt in
-                    SFTPPathPromptSheet(
-                        prompt: prompt,
-                        onConfirm: { path in
-                            sessionModel.handleSFTPPathPromptConfirm(prompt, path: path)
-                        },
-                        onCancel: {
-                            sessionModel.handleSFTPPathPromptCancel()
-                        }
-                    )
+            )
+        }
+        .sheet(item: activeSFTPPathPromptBinding) { prompt in
+            SFTPPathPromptSheet(
+                prompt: prompt,
+                onConfirm: { path in
+                    sessionModel.handleSFTPPathPromptConfirm(prompt, path: path)
+                },
+                onCancel: {
+                    sessionModel.handleSFTPPathPromptCancel()
                 }
-                .onChange(of: sessionModel.zmodemSelectionRequest) { _, request in
-                    guard let request else { return }
-                    presentZModemSelection(request)
-                }
-                .onChange(of: sessionModel.sftpLocalSelectionRequest) { _, request in
-                    guard let request else { return }
-                    presentSFTPLocalSelection(request)
-                }
-                .sheet(isPresented: $showingErrorDetails) {
-                    ErrorDetailSheet(message: sessionModel.lastExitMessage ?? failureMessage ?? "未知错误")
-                }
-        } else {
-            content
+            )
+        }
+        .onChange(of: sessionModel.zmodemSelectionRequest) { _, request in
+            guard allowsModalPresentation, let request else { return }
+            presentZModemSelection(request)
+        }
+        .onChange(of: sessionModel.sftpLocalSelectionRequest) { _, request in
+            guard allowsModalPresentation, let request else { return }
+            presentSFTPLocalSelection(request)
+        }
+        .sheet(isPresented: activeErrorDetailsBinding) {
+            ErrorDetailSheet(message: sessionModel.lastExitMessage ?? failureMessage ?? "未知错误")
         }
     }
 
@@ -202,6 +196,46 @@ struct TerminalWindowView: View {
             return message
         }
         return nil
+    }
+
+    private var activeHostKeyPromptBinding: Binding<KnownHostPrompt?> {
+        Binding(
+            get: { allowsModalPresentation ? sessionModel.hostKeyPrompt : nil },
+            set: {
+                guard allowsModalPresentation else { return }
+                sessionModel.hostKeyPrompt = $0
+            }
+        )
+    }
+
+    private var activePasswordPromptBinding: Binding<SSHPasswordPrompt?> {
+        Binding(
+            get: { allowsModalPresentation ? sessionModel.passwordPrompt : nil },
+            set: {
+                guard allowsModalPresentation else { return }
+                sessionModel.passwordPrompt = $0
+            }
+        )
+    }
+
+    private var activeSFTPPathPromptBinding: Binding<SFTPPathPrompt?> {
+        Binding(
+            get: { allowsModalPresentation ? sessionModel.sftpPathPrompt : nil },
+            set: {
+                guard allowsModalPresentation else { return }
+                sessionModel.sftpPathPrompt = $0
+            }
+        )
+    }
+
+    private var activeErrorDetailsBinding: Binding<Bool> {
+        Binding(
+            get: { allowsModalPresentation && showingErrorDetails },
+            set: {
+                guard allowsModalPresentation else { return }
+                showingErrorDetails = $0
+            }
+        )
     }
 
     @MainActor
