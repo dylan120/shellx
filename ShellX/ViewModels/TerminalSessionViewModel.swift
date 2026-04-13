@@ -749,23 +749,28 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
     }
 
     private static let highContrastTerminalPalette: [Color] = [
-        Color(red8: 0x11, green8: 0x14, blue8: 0x1A), // black
-        Color(red8: 0xFF, green8: 0x5F, blue8: 0x56), // red
-        Color(red8: 0x5A, green8: 0xD9, blue8: 0x7A), // green
-        Color(red8: 0xF4, green8: 0xC4, blue8: 0x30), // yellow
-        Color(red8: 0x6A, green8: 0xB7, blue8: 0xFF), // blue
-        Color(red8: 0xD9, green8: 0x7A, blue8: 0xFF), // magenta
-        Color(red8: 0x41, green8: 0xD6, blue8: 0xD6), // cyan
-        Color(red8: 0xD5, green8: 0xDB, blue8: 0xE3), // white
-        Color(red8: 0x4B, green8: 0x53, blue8: 0x60), // bright black
-        Color(red8: 0xFF, green8: 0x7B, blue8: 0x72), // bright red
-        Color(red8: 0x7E, green8: 0xF7, blue8: 0xA2), // bright green
-        Color(red8: 0xFF, green8: 0xDD, blue8: 0x57), // bright yellow
-        Color(red8: 0x8C, green8: 0xC8, blue8: 0xFF), // bright blue
-        Color(red8: 0xEE, green8: 0xA1, blue8: 0xFF), // bright magenta
-        Color(red8: 0x6F, green8: 0xF0, blue8: 0xF0), // bright cyan
-        Color(red8: 0xF3, green8: 0xF6, blue8: 0xFA)  // bright white
+        color8(0x11, 0x14, 0x1A), // black
+        color8(0xFF, 0x5F, 0x56), // red
+        color8(0x5A, 0xD9, 0x7A), // green
+        color8(0xF4, 0xC4, 0x30), // yellow
+        color8(0x6A, 0xB7, 0xFF), // blue
+        color8(0xD9, 0x7A, 0xFF), // magenta
+        color8(0x41, 0xD6, 0xD6), // cyan
+        color8(0xD5, 0xDB, 0xE3), // white
+        color8(0x4B, 0x53, 0x60), // bright black
+        color8(0xFF, 0x7B, 0x72), // bright red
+        color8(0x7E, 0xF7, 0xA2), // bright green
+        color8(0xFF, 0xDD, 0x57), // bright yellow
+        color8(0x8C, 0xC8, 0xFF), // bright blue
+        color8(0xEE, 0xA1, 0xFF), // bright magenta
+        color8(0x6F, 0xF0, 0xF0), // bright cyan
+        color8(0xF3, 0xF6, 0xFA)  // bright white
     ]
+
+    private static func color8(_ red: UInt16, _ green: UInt16, _ blue: UInt16) -> Color {
+        // 当前 SwiftTerm 版本只暴露 16 位通道初始化器，这里把常见 8 位 RGB 放大到 16 位。
+        Color(red: red * 257, green: green * 257, blue: blue * 257)
+    }
 
     private func handleUploadTrigger() {
         cancelTransferBannerReset()
