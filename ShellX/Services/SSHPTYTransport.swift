@@ -80,22 +80,26 @@ final class SSHPTYTransport {
         startProcess(
             executablePath: "/usr/bin/ssh",
             arguments: arguments,
-            password: password
+            password: password,
+            shellEnvironmentPath: nil
         )
     }
 
     func startLocalShell(shellPath: String, arguments: [String]) {
+        let resolvedShellPath = Self.preferredLocalShellPath(preferred: shellPath)
         startProcess(
-            executablePath: Self.preferredLocalShellPath(preferred: shellPath),
+            executablePath: resolvedShellPath,
             arguments: arguments,
-            password: nil
+            password: nil,
+            shellEnvironmentPath: resolvedShellPath
         )
     }
 
     private func startProcess(
         executablePath: String,
         arguments: [String],
-        password: String?
+        password: String?,
+        shellEnvironmentPath: String?
     ) {
         terminate()
         pendingPassword = password
@@ -119,6 +123,10 @@ final class SSHPTYTransport {
         if pid == 0 {
             setenv("TERM", "xterm-256color", 1)
             setenv("COLORTERM", "truecolor", 1)
+            if let shellEnvironmentPath {
+                // 本机终端应让 SHELL 与实际启动的 shell 保持一致，避免交互命令读到误导性的旧值。
+                setenv("SHELL", shellEnvironmentPath, 1)
+            }
             chdir(NSHomeDirectory())
 
             var cStrings = ([executablePath] + arguments).map { strdup($0) }
