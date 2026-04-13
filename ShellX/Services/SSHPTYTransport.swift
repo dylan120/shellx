@@ -11,6 +11,12 @@ protocol SSHPTYTransportDelegate: AnyObject {
     func transportDidUpdateDebugSnapshot(_ snapshot: String)
 }
 
+enum SSHPasswordSource: String {
+    case runtimeCache
+    case keychain
+    case manual
+}
+
 final class SSHPTYTransport {
     weak var delegate: SSHPTYTransportDelegate?
 
@@ -31,9 +37,11 @@ final class SSHPTYTransport {
     private var transferDirection: ZModemTransferDirection?
     private var didSeeDownloadCompletionFrame = false
     private var pendingPassword: String?
+    private var pendingPasswordSource: SSHPasswordSource?
     private var authTranscript = ""
     private var didSendPassword = false
     private var didRequestPasswordResolution = false
+    private var didLogRepeatedPasswordPrompt = false
     private var lastWindowSize: (cols: Int, rows: Int)?
     private var debugTranscript = ""
     private let maxDebugTranscriptLength = 65536
@@ -92,6 +100,8 @@ final class SSHPTYTransport {
         authTranscript = ""
         didSendPassword = false
         didRequestPasswordResolution = false
+        pendingPasswordSource = nil
+        didLogRepeatedPasswordPrompt = false
 
         var windowSize = winsize(ws_row: 40, ws_col: 120, ws_xpixel: 0, ws_ypixel: 0)
         var fd: Int32 = -1
@@ -251,6 +261,8 @@ final class SSHPTYTransport {
         authTranscript = ""
         didSendPassword = false
         didRequestPasswordResolution = false
+        pendingPasswordSource = nil
+        didLogRepeatedPasswordPrompt = false
         lastWindowSize = nil
         debugTranscript.removeAll(keepingCapacity: true)
     }
@@ -443,6 +455,8 @@ final class SSHPTYTransport {
         authTranscript = ""
         didSendPassword = false
         didRequestPasswordResolution = false
+        pendingPasswordSource = nil
+        didLogRepeatedPasswordPrompt = false
 
         let direction = transferDirection
         transferDirection = nil
@@ -474,7 +488,6 @@ final class SSHPTYTransport {
     }
 
     private func shouldHandlePasswordPrompt(from data: Data) -> Bool {
-        guard !didSendPassword else { return false }
         let chunk = String(decoding: data, as: UTF8.self)
         guard !chunk.isEmpty else { return false }
 
@@ -484,27 +497,55 @@ final class SSHPTYTransport {
             authTranscript = String(authTranscript.suffix(512))
         }
 
-        return authTranscript.contains("password:")
+        let didDetectPrompt = authTranscript.contains("password:")
             || authTranscript.contains("密码:")
             || authTranscript.contains("密码：")
+            || authTranscript.contains("password for")
+
+        guard didDetectPrompt else { return false }
+
+        if didSendPassword {
+            if !didLogRepeatedPasswordPrompt {
+                recordSSHAuthDebugEvent("ssh.passwordPrompt.promptedAgainAfterAutofill")
+                didLogRepeatedPasswordPrompt = true
+            }
+            return false
+        }
+
+        if didRequestPasswordResolution {
+            return false
+        }
+
+        recordSSHAuthDebugEvent("ssh.passwordPrompt.detected")
+        return true
     }
 
     private func sendPasswordIfNeeded() {
         guard let pendingPassword, !didSendPassword else { return }
+        let source = pendingPasswordSource?.rawValue ?? "unknown"
+        recordSSHAuthDebugEvent("ssh.passwordPrompt.autofill.sent source=\(source) length=\(pendingPassword.count)")
         send(Data((pendingPassword + "\n").utf8), trackAsUserInput: false)
         didSendPassword = true
         self.pendingPassword = nil
+        pendingPasswordSource = nil
         didRequestPasswordResolution = false
     }
 
-    func providePassword(_ password: String) {
+    func providePassword(_ password: String, source: SSHPasswordSource = .manual) {
         guard !password.isEmpty else { return }
         pendingPassword = password
+        pendingPasswordSource = source
+        recordSSHAuthDebugEvent("ssh.passwordPrompt.autofill.provide source=\(source.rawValue) length=\(password.count)")
         if authTranscript.contains("password:")
             || authTranscript.contains("密码:")
-            || authTranscript.contains("密码：") {
+            || authTranscript.contains("密码：")
+            || authTranscript.contains("password for") {
             sendPasswordIfNeeded()
         }
+    }
+
+    func recordSSHAuthDebugEvent(_ event: String) {
+        appendDebugLine("[SSHAuth] \(event)")
     }
 
     private func updateDebugTranscript(with data: Data) {
@@ -512,6 +553,18 @@ final class SSHPTYTransport {
         guard !normalized.isEmpty else { return }
 
         debugTranscript.append(normalized)
+        publishDebugSnapshot()
+    }
+
+    private func appendDebugLine(_ line: String) {
+        debugTranscript.append(line)
+        if !line.hasSuffix("\n") {
+            debugTranscript.append("\n")
+        }
+        publishDebugSnapshot()
+    }
+
+    private func publishDebugSnapshot() {
         if debugTranscript.count > maxDebugTranscriptLength {
             debugTranscript = String(debugTranscript.suffix(maxDebugTranscriptLength))
         }

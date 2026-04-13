@@ -120,6 +120,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
     private var pendingLocalShellPath: String?
     private var pendingPasswordHandler: ((String) -> Void)?
     private var passwordPromptPurpose: PasswordPromptPurpose?
+    private var hasAttemptedSSHPasswordAutofill = false
     private var transferBannerResetTask: Task<Void, Never>?
     private var runtimeKind: TerminalRuntimeKind?
 
@@ -195,6 +196,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         passwordPromptPurpose = nil
         sftpPathPrompt = nil
         sftpLocalSelectionRequest = nil
+        hasAttemptedSSHPasswordAutofill = false
         connectionState = .connecting
         pendingLocalShellPath = nil
 
@@ -223,6 +225,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         sftpPathPrompt = nil
         sftpLocalSelectionRequest = nil
         activeSession = nil
+        hasAttemptedSSHPasswordAutofill = false
         pendingLocalShellPath = nil
     }
 
@@ -311,28 +314,39 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
 
     func transportDidRequestPassword() {
         guard let session = activeSession, session.authMethod == .password else { return }
+        transport.recordSSHAuthDebugEvent("ssh.passwordPrompt.requestedByTransport session=\(session.id.uuidString)")
         // 等远端真正提示 password 后，再尝试读取 Keychain 并自动回填。
-        // 这样既能复用已保存密码，也不会在连接前提前触发系统授权。
+        // 单次连接只尝试一次自动填充，避免错误密码或重复提示时再次触发系统授权。
         if let cachedPassword = passwordStore.cachedPassword(for: session.id), !cachedPassword.isEmpty {
+            hasAttemptedSSHPasswordAutofill = true
+            transport.recordSSHAuthDebugEvent("ssh.passwordPrompt.autofill.begin source=runtimeCache")
             showTransientBanner("已从当前运行缓存中取到 SSH 密码，正在自动继续连接。", delaySeconds: 5)
             connectionState = .connecting
-            transport.providePassword(cachedPassword)
+            transport.providePassword(cachedPassword, source: .runtimeCache)
             return
         }
 
-        if session.passwordStoredInKeychain {
+        if session.passwordStoredInKeychain, !hasAttemptedSSHPasswordAutofill {
+            hasAttemptedSSHPasswordAutofill = true
+            transport.recordSSHAuthDebugEvent("ssh.passwordPrompt.autofill.begin source=keychain")
             do {
                 if let password = try passwordStore.loadPassword(for: session.id), !password.isEmpty {
+                    transport.recordSSHAuthDebugEvent("ssh.passwordPrompt.autofill.resolved source=keychain")
                     showTransientBanner("已从系统 Keychain 读取 SSH 密码，正在自动继续连接。", delaySeconds: 5)
                     connectionState = .connecting
-                    transport.providePassword(password)
+                    transport.providePassword(password, source: .keychain)
                     return
                 }
+                transport.recordSSHAuthDebugEvent("ssh.passwordPrompt.autofill.skipped.noPassword source=keychain")
             } catch {
+                transport.recordSSHAuthDebugEvent("ssh.passwordPrompt.autofill.failure source=keychain error=\(error.localizedDescription)")
                 showTransientBanner("读取系统 Keychain 中的 SSH 密码失败：\(error.localizedDescription)。请先输入本次连接密码。", delaySeconds: 5)
             }
+        } else if session.passwordStoredInKeychain {
+            transport.recordSSHAuthDebugEvent("ssh.passwordPrompt.autofill.skipped.alreadyAttempted source=keychain")
         }
 
+        transport.recordSSHAuthDebugEvent("ssh.passwordPrompt.manualPrompt.presented")
         passwordPrompt = SSHPasswordPrompt(
             sessionName: session.name,
             message: session.passwordStoredInKeychain
@@ -424,7 +438,8 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
             passwordPromptPurpose = nil
             showTransientBanner("正在使用本次输入的密码继续连接。")
             connectionState = .connecting
-            transport.providePassword(trimmedPassword)
+            transport.recordSSHAuthDebugEvent("ssh.passwordPrompt.manualPrompt.submitted")
+            transport.providePassword(trimmedPassword, source: .manual)
             return
         }
 
@@ -616,6 +631,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         hostKeyPrompt = nil
         passwordPrompt = nil
         passwordPromptPurpose = nil
+        hasAttemptedSSHPasswordAutofill = false
 
         Task {
             await prepareAndStart(session: session, onConnected: onConnected)
