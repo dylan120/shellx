@@ -317,7 +317,10 @@ private struct TerminalTabWorkspaceView: View {
                             TerminalWindowView(
                                 sessionModel: appModel.terminalSessionModel(for: tab.id),
                                 session: nil,
-                                localShellPath: shellPath
+                                localShellPath: shellPath,
+                                onCloseCurrentTab: {
+                                    appModel.closeTerminal(tabID: tab.id)
+                                }
                             )
                             .opacity(tab.id == appModel.activeTerminalTabID ? 1 : 0)
                             .allowsHitTesting(tab.id == appModel.activeTerminalTabID)
@@ -326,7 +329,10 @@ private struct TerminalTabWorkspaceView: View {
                             TerminalWindowView(
                                 sessionModel: appModel.terminalSessionModel(for: tab.id),
                                 session: session,
-                                localShellPath: nil
+                                localShellPath: nil,
+                                onCloseCurrentTab: {
+                                    appModel.closeTerminal(tabID: tab.id)
+                                }
                             )
                             .opacity(tab.id == appModel.activeTerminalTabID ? 1 : 0)
                             .allowsHitTesting(tab.id == appModel.activeTerminalTabID)

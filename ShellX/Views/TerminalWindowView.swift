@@ -12,7 +12,8 @@ struct TerminalWindowContainerView: View {
             TerminalWindowView(
                 sessionModel: appModel.terminalSessionModel(for: session.id),
                 session: session,
-                localShellPath: nil
+                localShellPath: nil,
+                onCloseCurrentTab: {}
             )
         } else {
             ContentUnavailableView(
@@ -32,12 +33,29 @@ struct TerminalWindowView: View {
 
     let session: SSHSessionProfile?
     let localShellPath: String?
+    let onCloseCurrentTab: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
             ZStack(alignment: .bottomLeading) {
                 SwiftTermTerminalView(sessionModel: sessionModel)
                     .background(Color(nsColor: .textBackgroundColor))
+                    .contextMenu {
+                        Button("复制") {
+                            sessionModel.copySelectedText()
+                        }
+                        .disabled(!sessionModel.hasTextSelection)
+
+                        Button("粘贴") {
+                            sessionModel.pasteClipboardText()
+                        }
+
+                        Divider()
+
+                        Button("关闭") {
+                            onCloseCurrentTab()
+                        }
+                    }
 
                 if let banner = sessionModel.bannerContent {
                     ErrorBannerView(message: banner.message, isError: banner.isError)

@@ -1,6 +1,19 @@
 import AppKit
 import SwiftUI
 
+enum ShellXPreferences {
+    private static let copySelectionOnSelectKey = "preferences.mouseTrackpad.copySelectionOnSelect"
+
+    static var copySelectionOnSelect: Bool {
+        get {
+            UserDefaults.standard.object(forKey: copySelectionOnSelectKey) as? Bool ?? false
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: copySelectionOnSelectKey)
+        }
+    }
+}
+
 @main
 struct ShellXApp: App {
     @StateObject private var appModel = AppViewModel()
@@ -16,17 +29,61 @@ struct ShellXApp: App {
                 }
         }
         .defaultSize(width: 1280, height: 760)
+        .commands {
+            CommandGroup(after: .newItem) {
+                Divider()
+                Button("全局配置…") {
+                    openSettingsWindow()
+                }
+            }
+        }
 
         Settings {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("ShellX 设置")
-                    .font(.title2.weight(.semibold))
-                Text("当前版本已接入 SwiftTerm、首次连接 host key 确认、账号密码 Keychain 存储和私钥 Keychain 集成。")
-                    .foregroundStyle(.secondary)
-                Spacer()
-            }
-            .padding(24)
-            .frame(width: 420, height: 180)
+            GlobalPreferencesView()
         }
+    }
+
+    private func openSettingsWindow() {
+        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+}
+
+private struct GlobalPreferencesView: View {
+    @State private var copySelectionOnSelect = ShellXPreferences.copySelectionOnSelect
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("全局配置")
+                .font(.title2.weight(.semibold))
+
+            GroupBox("鼠标 / 触控板行为") {
+                VStack(alignment: .leading, spacing: 12) {
+                    Toggle(isOn: Binding(
+                        get: { copySelectionOnSelect },
+                        set: { newValue in
+                            copySelectionOnSelect = newValue
+                            ShellXPreferences.copySelectionOnSelect = newValue
+                        }
+                    )) {
+                        HStack(spacing: 6) {
+                            Text("选中文本复制")
+                            Image(systemName: "questionmark.circle")
+                                .foregroundStyle(.secondary)
+                                .help("选中终端文本后自动复制到系统剪贴板。")
+                        }
+                    }
+
+                    Text("控制终端选区变化后是否自动复制。关闭后仍可继续使用系统复制命令手动复制。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Spacer()
+        }
+        .padding(24)
+        .frame(width: 460, height: 220)
     }
 }

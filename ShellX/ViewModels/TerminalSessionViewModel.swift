@@ -107,6 +107,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
     @Published var sftpPathPrompt: SFTPPathPrompt?
     @Published var sftpLocalSelectionRequest: SFTPLocalSelectionRequest?
     @Published var terminalDebugSnapshot = ""
+    @Published var hasTextSelection = false
 
     private weak var terminalView: TerminalView?
     private let transport = SSHPTYTransport()
@@ -168,6 +169,23 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         }
     }
 
+    func updateTextSelectionState(_ hasSelection: Bool) {
+        hasTextSelection = hasSelection
+    }
+
+    func copySelectedText() {
+        guard let terminalView,
+              terminalView.selectedRange().length > 0 else {
+            return
+        }
+        terminalView.copy(self)
+    }
+
+    func pasteClipboardText() {
+        guard let terminalView else { return }
+        terminalView.paste(self)
+    }
+
     func reconnect(session: SSHSessionProfile, onConnected: @escaping (UUID) -> Void) {
         terminate()
         start(session: session, onConnected: onConnected)
@@ -227,6 +245,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         activeSession = nil
         hasAttemptedSSHPasswordAutofill = false
         pendingLocalShellPath = nil
+        hasTextSelection = false
     }
 
     static func sshArguments(
