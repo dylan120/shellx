@@ -31,6 +31,11 @@ struct ShellXApp: App {
         .defaultSize(width: 1280, height: 760)
         .commands {
             CommandGroup(after: .newItem) {
+                Button("新建本机终端") {
+                    appModel.openLocalTerminal()
+                }
+                .keyboardShortcut("t", modifiers: [.command, .shift])
+
                 Divider()
                 SettingsLink {
                     Text("全局配置…")
