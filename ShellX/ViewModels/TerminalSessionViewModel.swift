@@ -729,15 +729,15 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
     private func configureAppearance(for terminalView: TerminalView) {
         terminalView.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
         terminalView.nativeForegroundColor = NSColor(
-            calibratedRed: 0.88,
-            green: 0.90,
-            blue: 0.94,
+            calibratedRed: 0.78,
+            green: 0.81,
+            blue: 0.86,
             alpha: 1
         )
         terminalView.nativeBackgroundColor = NSColor(
-            calibratedRed: 0.10,
-            green: 0.11,
-            blue: 0.14,
+            calibratedRed: 0.07,
+            green: 0.08,
+            blue: 0.10,
             alpha: 1
         )
         terminalView.caretColor = .systemGreen

@@ -3,6 +3,25 @@ import XCTest
 
 @MainActor
 final class AppViewModelTests: XCTestCase {
+    func testTerminalScrollbackPreferenceClampsToSupportedRange() {
+        let originalValue = ShellXPreferences.terminalScrollbackLines
+        defer {
+            ShellXPreferences.terminalScrollbackLines = originalValue
+        }
+
+        ShellXPreferences.terminalScrollbackLines = ShellXPreferences.minimumTerminalScrollbackLines - 1
+        XCTAssertEqual(
+            ShellXPreferences.terminalScrollbackLines,
+            ShellXPreferences.minimumTerminalScrollbackLines
+        )
+
+        ShellXPreferences.terminalScrollbackLines = ShellXPreferences.maximumTerminalScrollbackLines + 1
+        XCTAssertEqual(
+            ShellXPreferences.terminalScrollbackLines,
+            ShellXPreferences.maximumTerminalScrollbackLines
+        )
+    }
+
     func testOpenLocalTerminalUsesFixedTabIdentifier() {
         let viewModel = AppViewModel(repository: AppStorageRepository())
 

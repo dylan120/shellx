@@ -8,6 +8,7 @@ struct SwiftTermTerminalView: NSViewRepresentable {
     func makeNSView(context: Context) -> ShellXTerminalView {
         let terminalView = ShellXTerminalView(frame: .zero)
         terminalView.autoresizingMask = [.width, .height]
+        terminalView.applyRuntimePreferences()
         return terminalView
     }
 
@@ -18,6 +19,7 @@ struct SwiftTermTerminalView: NSViewRepresentable {
         // SwiftUI 初次创建 NSView 时，底层尺寸常常还没稳定。
         // 延后到 update 阶段再附着，避免终端按过大的初始行数启动，导致全屏程序首屏顶部被裁掉。
         DispatchQueue.main.async {
+            nsView.applyRuntimePreferences()
             sessionModel.attachTerminalView(nsView)
         }
     }
@@ -26,7 +28,18 @@ struct SwiftTermTerminalView: NSViewRepresentable {
 final class ShellXTerminalView: TerminalView {
     private var pendingSelectionCopyTask: DispatchWorkItem?
     private var outsideClickMonitor: Any?
+    private var preferencesObserver: Any?
     var onSelectionChanged: ((Bool) -> Void)?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        startObservingPreferences()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        startObservingPreferences()
+    }
 
     override func selectionChanged(source: Terminal) {
         super.selectionChanged(source: source)
@@ -50,7 +63,15 @@ final class ShellXTerminalView: TerminalView {
     }
 
     deinit {
+        if let preferencesObserver {
+            NotificationCenter.default.removeObserver(preferencesObserver)
+        }
         removeOutsideClickMonitor()
+    }
+
+    func applyRuntimePreferences() {
+        // 统一在视图层限制终端历史行数，避免高频输出会话持续推高内存占用。
+        changeScrollback(ShellXPreferences.terminalScrollbackLines)
     }
 
     private func updateOutsideClickMonitor(isNeeded: Bool) {
@@ -91,6 +112,16 @@ final class ShellXTerminalView: TerminalView {
         if let outsideClickMonitor {
             NSEvent.removeMonitor(outsideClickMonitor)
             self.outsideClickMonitor = nil
+        }
+    }
+
+    private func startObservingPreferences() {
+        preferencesObserver = NotificationCenter.default.addObserver(
+            forName: ShellXPreferences.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.applyRuntimePreferences()
         }
     }
 }
