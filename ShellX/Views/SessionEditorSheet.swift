@@ -11,6 +11,7 @@ struct SessionEditorSheet: View {
     @EnvironmentObject private var appModel: AppViewModel
 
     @State private var draft: SSHSessionProfile
+    @State private var passwordDraft = ""
     @State private var privateKeySelectionError: String?
     let title: String
     let onSave: (SessionEditorSubmission) -> Void
@@ -80,10 +81,22 @@ struct SessionEditorSheet: View {
                 }
 
                 if draft.authMethod == .password {
-                    Toggle("将密码保存到系统 Keychain", isOn: $draft.passwordStoredInKeychain)
-                    Text(passwordHelpText)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle("将密码保存到系统 Keychain", isOn: $draft.passwordStoredInKeychain)
+
+                        if draft.passwordStoredInKeychain {
+                            SecureField("重新设置登录密码", text: $passwordDraft)
+                                .textFieldStyle(.roundedBorder)
+
+                            Text(passwordHelpText)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text(passwordHelpText)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
 
                 Picker("所属文件夹", selection: $draft.folderID) {
@@ -116,7 +129,7 @@ struct SessionEditorSheet: View {
                     onSave(
                         SessionEditorSubmission(
                             session: session,
-                            password: ""
+                            password: passwordDraft
                         )
                     )
                     dismiss()
@@ -135,7 +148,7 @@ struct SessionEditorSheet: View {
 
     private var passwordHelpText: String {
         if draft.passwordStoredInKeychain {
-            return "当远端 SSH 真正提示密码时，ShellX 会优先尝试从系统 Keychain 读取并自动回填；如果读取不到，再提示你输入一次，并在本次输入后重新写入。SFTP 传输也会复用该密码。"
+            return "在这里输入新密码并保存，会立即新建或刷新系统 Keychain 条目；留空保存则保持当前已保存密码不变。后续 SSH 和 SFTP 在真正需要密码时都会优先复用。"
         }
         return "关闭后，SSH 和 SFTP 在需要密码时都会提示你手动输入一次；密码不会写入 ShellX 的 sessions.json。"
     }
