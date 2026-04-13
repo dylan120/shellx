@@ -97,7 +97,6 @@ private struct AllSessionsRow: View {
             handleDrop(providers, to: nil)
         }
         .listRowInsets(EdgeInsets())
-        .listRowBackground(rowBackground(isSelected: appModel.selectedFolderID == nil))
     }
 
     private func handleDrop(_ providers: [NSItemProvider], to folderID: UUID?) -> Bool {
@@ -110,10 +109,6 @@ private struct AllSessionsRow: View {
             }
         }
         return !providers.isEmpty
-    }
-
-    private func rowBackground(isSelected: Bool) -> Color {
-        isSelected ? Color.accentColor.opacity(0.16) : .clear
     }
 }
 
@@ -167,7 +162,9 @@ private struct FolderBranchView: View {
             }
         } label: {
             HStack(spacing: 10) {
-                Label(node.folder.name, systemImage: "folder")
+                Image(systemName: "folder.fill")
+                    .foregroundStyle(.green)
+                Text(node.folder.name)
                 Spacer(minLength: 8)
                 Text("\(appModel.sessions(in: node.folder.id).count)")
                     .foregroundStyle(.secondary)
@@ -203,7 +200,6 @@ private struct FolderBranchView: View {
                 }
             }
             .listRowInsets(EdgeInsets())
-            .listRowBackground(rowBackground(isSelected: appModel.selectedFolderID == node.folder.id))
         }
     }
 
@@ -217,10 +213,6 @@ private struct FolderBranchView: View {
             }
         }
         return !providers.isEmpty
-    }
-
-    private func rowBackground(isSelected: Bool) -> Color {
-        isSelected ? Color.accentColor.opacity(0.16) : .clear
     }
 }
 
