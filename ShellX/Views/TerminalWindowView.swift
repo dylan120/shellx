@@ -13,7 +13,8 @@ struct TerminalWindowContainerView: View {
                 sessionModel: appModel.terminalSessionModel(for: session.id),
                 session: session,
                 localShellPath: nil,
-                onCloseCurrentTab: {}
+                onCloseCurrentTab: {},
+                allowsModalPresentation: true
             )
         } else {
             ContentUnavailableView(
@@ -34,9 +35,10 @@ struct TerminalWindowView: View {
     let session: SSHSessionProfile?
     let localShellPath: String?
     let onCloseCurrentTab: () -> Void
+    let allowsModalPresentation: Bool
 
     var body: some View {
-        VStack(spacing: 0) {
+        let content = VStack(spacing: 0) {
             ZStack(alignment: .bottomLeading) {
                 SwiftTermTerminalView(sessionModel: sessionModel)
                     .background(Color(nsColor: .textBackgroundColor))
@@ -118,49 +120,57 @@ struct TerminalWindowView: View {
                 connect()
             }
         }
-        .sheet(item: $sessionModel.hostKeyPrompt) { prompt in
-            HostKeyPromptSheet(
-                prompt: prompt,
-                onConfirm: {
-                    sessionModel.trustCurrentHostAndContinue()
-                },
-                onCancel: {
-                    sessionModel.cancelHostTrust()
+
+        if allowsModalPresentation {
+            // 终端标签会常驻保活；系统 sheet 只能挂在当前活动标签上，
+            // 否则隐藏标签也会争抢弹窗宿主，造成主机指纹窗口在多屏间跳动。
+            content
+                .sheet(item: $sessionModel.hostKeyPrompt) { prompt in
+                    HostKeyPromptSheet(
+                        prompt: prompt,
+                        onConfirm: {
+                            sessionModel.trustCurrentHostAndContinue()
+                        },
+                        onCancel: {
+                            sessionModel.cancelHostTrust()
+                        }
+                    )
                 }
-            )
-        }
-        .sheet(item: $sessionModel.passwordPrompt) { prompt in
-            SSHPasswordPromptSheet(
-                prompt: prompt,
-                onConfirm: { password in
-                    sessionModel.submitPasswordAndContinue(password)
-                },
-                onCancel: {
-                    sessionModel.cancelPasswordPrompt()
+                .sheet(item: $sessionModel.passwordPrompt) { prompt in
+                    SSHPasswordPromptSheet(
+                        prompt: prompt,
+                        onConfirm: { password in
+                            sessionModel.submitPasswordAndContinue(password)
+                        },
+                        onCancel: {
+                            sessionModel.cancelPasswordPrompt()
+                        }
+                    )
                 }
-            )
-        }
-        .sheet(item: $sessionModel.sftpPathPrompt) { prompt in
-            SFTPPathPromptSheet(
-                prompt: prompt,
-                onConfirm: { path in
-                    sessionModel.handleSFTPPathPromptConfirm(prompt, path: path)
-                },
-                onCancel: {
-                    sessionModel.handleSFTPPathPromptCancel()
+                .sheet(item: $sessionModel.sftpPathPrompt) { prompt in
+                    SFTPPathPromptSheet(
+                        prompt: prompt,
+                        onConfirm: { path in
+                            sessionModel.handleSFTPPathPromptConfirm(prompt, path: path)
+                        },
+                        onCancel: {
+                            sessionModel.handleSFTPPathPromptCancel()
+                        }
+                    )
                 }
-            )
-        }
-        .onChange(of: sessionModel.zmodemSelectionRequest) { _, request in
-            guard let request else { return }
-            presentZModemSelection(request)
-        }
-        .onChange(of: sessionModel.sftpLocalSelectionRequest) { _, request in
-            guard let request else { return }
-            presentSFTPLocalSelection(request)
-        }
-        .sheet(isPresented: $showingErrorDetails) {
-            ErrorDetailSheet(message: sessionModel.lastExitMessage ?? failureMessage ?? "未知错误")
+                .onChange(of: sessionModel.zmodemSelectionRequest) { _, request in
+                    guard let request else { return }
+                    presentZModemSelection(request)
+                }
+                .onChange(of: sessionModel.sftpLocalSelectionRequest) { _, request in
+                    guard let request else { return }
+                    presentSFTPLocalSelection(request)
+                }
+                .sheet(isPresented: $showingErrorDetails) {
+                    ErrorDetailSheet(message: sessionModel.lastExitMessage ?? failureMessage ?? "未知错误")
+                }
+        } else {
+            content
         }
     }
 

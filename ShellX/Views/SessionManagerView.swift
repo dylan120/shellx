@@ -320,7 +320,8 @@ private struct TerminalTabWorkspaceView: View {
                                 localShellPath: shellPath,
                                 onCloseCurrentTab: {
                                     appModel.closeTerminal(tabID: tab.id)
-                                }
+                                },
+                                allowsModalPresentation: tab.id == appModel.activeTerminalTabID
                             )
                             .opacity(tab.id == appModel.activeTerminalTabID ? 1 : 0)
                             .allowsHitTesting(tab.id == appModel.activeTerminalTabID)
@@ -332,7 +333,8 @@ private struct TerminalTabWorkspaceView: View {
                                 localShellPath: nil,
                                 onCloseCurrentTab: {
                                     appModel.closeTerminal(tabID: tab.id)
-                                }
+                                },
+                                allowsModalPresentation: tab.id == appModel.activeTerminalTabID
                             )
                             .opacity(tab.id == appModel.activeTerminalTabID ? 1 : 0)
                             .allowsHitTesting(tab.id == appModel.activeTerminalTabID)
