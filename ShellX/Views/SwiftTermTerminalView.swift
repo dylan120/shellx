@@ -33,17 +33,20 @@ final class ShellXTerminalView: TerminalView {
 
     private var pendingSelectionCopyTask: DispatchWorkItem?
     private var outsideClickMonitor: Any?
+    private var keyEventMonitor: Any?
     private var preferencesObserver: Any?
     var onSelectionChanged: ((Bool) -> Void)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         startObservingPreferences()
+        startObservingKeyEvents()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         startObservingPreferences()
+        startObservingKeyEvents()
     }
 
     override func selectionChanged(source: Terminal) {
@@ -67,16 +70,12 @@ final class ShellXTerminalView: TerminalView {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: copyTask)
     }
 
-    override func keyDown(with event: NSEvent) {
-        if handleCommandArrowKey(event) {
-            return
-        }
-        super.keyDown(with: event)
-    }
-
     deinit {
         if let preferencesObserver {
             NotificationCenter.default.removeObserver(preferencesObserver)
+        }
+        if let keyEventMonitor {
+            NSEvent.removeMonitor(keyEventMonitor)
         }
         removeOutsideClickMonitor()
     }
@@ -144,6 +143,26 @@ final class ShellXTerminalView: TerminalView {
         // 终端里的大多数 readline / prompt-toolkit / CLI 编辑器都能识别 Ctrl-A / Ctrl-E。
         send(data: [controlByte][...])
         return true
+    }
+
+    private func startObservingKeyEvents() {
+        keyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            guard self.shouldHandleKeyEvent(event), self.handleCommandArrowKey(event) else {
+                return event
+            }
+            return nil
+        }
+    }
+
+    private func shouldHandleKeyEvent(_ event: NSEvent) -> Bool {
+        guard let window = self.window, event.window === window else { return false }
+
+        // 仅在当前终端实际持有焦点时拦截快捷键，避免影响同窗口内其它输入控件。
+        guard let firstResponder = window.firstResponder as? NSView else {
+            return false
+        }
+        return firstResponder === self || firstResponder.isDescendant(of: self)
     }
 
     private func startObservingPreferences() {
