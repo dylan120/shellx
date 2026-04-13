@@ -13,6 +13,7 @@ struct TerminalWindowContainerView: View {
                 sessionModel: appModel.terminalSessionModel(for: session.id),
                 session: session,
                 localShellPath: nil,
+                localShellLaunchMode: .login,
                 onCloseCurrentTab: {},
                 allowsModalPresentation: true
             )
@@ -34,6 +35,7 @@ struct TerminalWindowView: View {
 
     let session: SSHSessionProfile?
     let localShellPath: String?
+    let localShellLaunchMode: LocalShellLaunchMode
     let onCloseCurrentTab: () -> Void
     let allowsModalPresentation: Bool
 
@@ -187,7 +189,10 @@ struct TerminalWindowView: View {
                 appModel.markConnected(sessionID: sessionID)
             }
         } else {
-            sessionModel.startLocalShell(shellPath: localShellPath ?? AppViewModel.defaultLocalShellPath)
+            sessionModel.startLocalShell(
+                shellPath: localShellPath ?? AppViewModel.defaultLocalShellPath,
+                launchMode: localShellLaunchMode
+            )
         }
     }
 

@@ -46,6 +46,23 @@ final class AppViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.openTerminalSessionIDs, [AppViewModel.localTerminalID])
         XCTAssertEqual(viewModel.activeTerminalSessionID, AppViewModel.localTerminalID)
         XCTAssertEqual(viewModel.openTerminalTabs.first?.title, "本机终端")
+        XCTAssertEqual(
+            viewModel.openTerminalTabs.first?.kind,
+            .local(shellPath: AppViewModel.defaultLocalShellPath, launchMode: .login)
+        )
+    }
+
+    func testDuplicateLocalTerminalUsesNonLoginShell() {
+        let viewModel = AppViewModel(repository: AppStorageRepository())
+
+        viewModel.openLocalTerminal()
+        viewModel.duplicateTerminal(tabID: AppViewModel.localTerminalID)
+
+        XCTAssertEqual(viewModel.openTerminalTabs.count, 2)
+        XCTAssertEqual(
+            viewModel.openTerminalTabs.last?.kind,
+            .local(shellPath: AppViewModel.defaultLocalShellPath, launchMode: .interactive)
+        )
     }
 
     func testDuplicateSessionCreatesNewIdentifier() {

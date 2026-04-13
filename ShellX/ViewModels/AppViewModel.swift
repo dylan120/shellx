@@ -1,9 +1,23 @@
 import Foundation
 import SwiftUI
 
+enum LocalShellLaunchMode: Equatable {
+    case login
+    case interactive
+
+    var arguments: [String] {
+        switch self {
+        case .login:
+            return ["-l"]
+        case .interactive:
+            return []
+        }
+    }
+}
+
 struct TerminalTabItem: Identifiable, Equatable {
     enum Kind: Equatable {
-        case local(shellPath: String)
+        case local(shellPath: String, launchMode: LocalShellLaunchMode)
         case ssh(SSHSessionProfile)
     }
 
@@ -14,7 +28,7 @@ struct TerminalTabItem: Identifiable, Equatable {
 
 private struct TerminalTabState: Identifiable, Equatable {
     enum Kind: Equatable {
-        case local(shellPath: String)
+        case local(shellPath: String, launchMode: LocalShellLaunchMode)
         case ssh(sessionID: UUID)
     }
 
@@ -110,11 +124,11 @@ final class AppViewModel: ObservableObject {
     var openTerminalTabs: [TerminalTabItem] {
         terminalTabs.compactMap { tab in
             switch tab.kind {
-            case .local(let shellPath):
+            case .local(let shellPath, let launchMode):
                 return TerminalTabItem(
                     id: tab.id,
                     title: "本机终端",
-                    kind: .local(shellPath: shellPath)
+                    kind: .local(shellPath: shellPath, launchMode: launchMode)
                 )
             case .ssh(let sessionID):
                 guard let session = sessions.first(where: { $0.id == sessionID }) else { return nil }
@@ -309,12 +323,12 @@ final class AppViewModel: ObservableObject {
     func duplicateTerminal(tabID: UUID) {
         guard let tab = terminalTabs.first(where: { $0.id == tabID }) else { return }
         switch tab.kind {
-        case .local(let shellPath):
+        case .local(let shellPath, _):
             let duplicatedTabID = UUID()
             terminalTabs.append(
                 TerminalTabState(
                     id: duplicatedTabID,
-                    kind: .local(shellPath: shellPath)
+                    kind: .local(shellPath: shellPath, launchMode: .interactive)
                 )
             )
             activeTerminalTabID = duplicatedTabID
@@ -334,7 +348,7 @@ final class AppViewModel: ObservableObject {
             terminalTabs.append(
                 TerminalTabState(
                     id: Self.localTerminalID,
-                    kind: .local(shellPath: Self.defaultLocalShellPath)
+                    kind: .local(shellPath: Self.defaultLocalShellPath, launchMode: .login)
                 )
             )
         }

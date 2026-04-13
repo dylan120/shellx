@@ -119,6 +119,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
     private var pendingSession: SSHSessionProfile?
     private var pendingConnectedHandler: ((UUID) -> Void)?
     private var pendingLocalShellPath: String?
+    private var pendingLocalShellLaunchMode: LocalShellLaunchMode = .login
     private var pendingPasswordHandler: ((String) -> Void)?
     private var passwordPromptPurpose: PasswordPromptPurpose?
     private var hasAttemptedSSHPasswordAutofill = false
@@ -164,8 +165,9 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
             self.pendingConnectedHandler = nil
             start(session: pendingSession, onConnected: pendingConnectedHandler)
         } else if let pendingLocalShellPath {
+            let pendingLocalShellLaunchMode = self.pendingLocalShellLaunchMode
             self.pendingLocalShellPath = nil
-            startLocalShell(shellPath: pendingLocalShellPath)
+            startLocalShell(shellPath: pendingLocalShellPath, launchMode: pendingLocalShellLaunchMode)
         }
     }
 
@@ -191,9 +193,10 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         start(session: session, onConnected: onConnected)
     }
 
-    func startLocalShell(shellPath: String = "/bin/zsh") {
+    func startLocalShell(shellPath: String = "/bin/zsh", launchMode: LocalShellLaunchMode = .login) {
         guard terminalView != nil else {
             pendingLocalShellPath = shellPath
+            pendingLocalShellLaunchMode = launchMode
             runtimeKind = .local(shellPath: shellPath)
             terminalTitle = TerminalRuntimeKind.local(shellPath: shellPath).defaultTitle
             connectionState = .connecting
@@ -217,8 +220,9 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         hasAttemptedSSHPasswordAutofill = false
         connectionState = .connecting
         pendingLocalShellPath = nil
+        pendingLocalShellLaunchMode = launchMode
 
-        transport.startLocalShell(shellPath: shellPath)
+        transport.startLocalShell(shellPath: shellPath, arguments: launchMode.arguments)
 
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(500))
@@ -766,22 +770,22 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
     }
 
     private static let highContrastTerminalPalette: [Color] = [
-        color8(0x16, 0x1A, 0x21), // black
-        color8(0xFF, 0x6B, 0x64), // red
-        color8(0x68, 0xE6, 0x88), // green
-        color8(0xFF, 0xCF, 0x47), // yellow
-        color8(0x78, 0xC2, 0xFF), // blue
-        color8(0xE4, 0x89, 0xFF), // magenta
-        color8(0x50, 0xE3, 0xE3), // cyan
-        color8(0xDF, 0xE6, 0xEE), // white
-        color8(0x5B, 0x64, 0x73), // bright black
-        color8(0xFF, 0x8A, 0x84), // bright red
-        color8(0x8C, 0xFF, 0xAE), // bright green
-        color8(0xFF, 0xE3, 0x68), // bright yellow
-        color8(0x9B, 0xD2, 0xFF), // bright blue
-        color8(0xF2, 0xB0, 0xFF), // bright magenta
-        color8(0x7C, 0xFA, 0xFA), // bright cyan
-        color8(0xFA, 0xFC, 0xFF)  // bright white
+        color8(0x1C, 0x21, 0x29), // black
+        color8(0xFF, 0x7A, 0x72), // red
+        color8(0x74, 0xF0, 0x97), // green
+        color8(0xFF, 0xD8, 0x57), // yellow
+        color8(0x8A, 0xCC, 0xFF), // blue
+        color8(0xEC, 0x9B, 0xFF), // magenta
+        color8(0x60, 0xEC, 0xEC), // cyan
+        color8(0xE7, 0xED, 0xF5), // white
+        color8(0x6B, 0x76, 0x87), // bright black
+        color8(0xFF, 0xA0, 0x99), // bright red
+        color8(0xA0, 0xFF, 0xBE), // bright green
+        color8(0xFF, 0xEA, 0x7B), // bright yellow
+        color8(0xB2, 0xDD, 0xFF), // bright blue
+        color8(0xF7, 0xC1, 0xFF), // bright magenta
+        color8(0x96, 0xFF, 0xFF), // bright cyan
+        color8(0xFF, 0xFF, 0xFF)  // bright white
     ]
 
     private static func color8(_ red: UInt16, _ green: UInt16, _ blue: UInt16) -> Color {

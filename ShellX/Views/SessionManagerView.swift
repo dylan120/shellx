@@ -237,8 +237,8 @@ private struct TerminalTabWorkspaceView: View {
                             Button("重连") {
                                 appModel.activateTerminal(tabID: tab.id)
                                 switch tab.kind {
-                                case .local(let shellPath):
-                                    sessionModel.startLocalShell(shellPath: shellPath)
+                                case .local(let shellPath, let launchMode):
+                                    sessionModel.startLocalShell(shellPath: shellPath, launchMode: launchMode)
                                 case .ssh(let session):
                                     sessionModel.reconnect(session: session) { sessionID in
                                         appModel.markConnected(sessionID: sessionID)
@@ -313,11 +313,12 @@ private struct TerminalTabWorkspaceView: View {
                 ZStack {
                     ForEach(appModel.openTerminalTabs) { tab in
                         switch tab.kind {
-                        case .local(let shellPath):
+                        case .local(let shellPath, let launchMode):
                             TerminalWindowView(
                                 sessionModel: appModel.terminalSessionModel(for: tab.id),
                                 session: nil,
                                 localShellPath: shellPath,
+                                localShellLaunchMode: launchMode,
                                 onCloseCurrentTab: {
                                     appModel.closeTerminal(tabID: tab.id)
                                 },
@@ -331,6 +332,7 @@ private struct TerminalTabWorkspaceView: View {
                                 sessionModel: appModel.terminalSessionModel(for: tab.id),
                                 session: session,
                                 localShellPath: nil,
+                                localShellLaunchMode: .login,
                                 onCloseCurrentTab: {
                                     appModel.closeTerminal(tabID: tab.id)
                                 },

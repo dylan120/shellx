@@ -84,7 +84,7 @@ final class SSHPTYTransport {
         )
     }
 
-    func startLocalShell(shellPath: String, arguments: [String] = ["-l"]) {
+    func startLocalShell(shellPath: String, arguments: [String]) {
         startProcess(
             executablePath: Self.preferredLocalShellPath(preferred: shellPath),
             arguments: arguments,
