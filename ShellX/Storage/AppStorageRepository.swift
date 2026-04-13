@@ -65,7 +65,7 @@ enum SampleData {
                 host: "10.0.0.11",
                 username: "deploy",
                 authMethod: .sshAgent,
-                notes: "生产环境 Web 节点"
+                tags: ["生产环境", "Web", "节点"]
             ),
             SSHSessionProfile(
                 folderID: projectB.id,
@@ -75,7 +75,7 @@ enum SampleData {
                 authMethod: .privateKey,
                 privateKeyPath: "~/.ssh/id_ed25519",
                 startupCommand: "cd /srv/app",
-                notes: "预发 API 机器"
+                tags: ["预发环境", "API", "机器"]
             )
         ]
 
@@ -85,4 +85,3 @@ enum SampleData {
         )
     }
 }
-

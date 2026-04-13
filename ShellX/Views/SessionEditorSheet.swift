@@ -12,6 +12,7 @@ struct SessionEditorSheet: View {
 
     @State private var draft: SSHSessionProfile
     @State private var passwordDraft = ""
+    @State private var tagDraft = ""
     @State private var privateKeySelectionError: String?
     let title: String
     let onSave: (SessionEditorSubmission) -> Void
@@ -30,12 +31,8 @@ struct SessionEditorSheet: View {
             Form {
                 TextField("会话名称", text: $draft.name)
                 TextField("主机地址", text: $draft.host)
-
-                HStack {
-                    TextField("用户名", text: $draft.username)
-                    TextField("端口", value: $draft.port, format: .number)
-                        .frame(width: 120)
-                }
+                TextField("用户名", text: $draft.username)
+                TextField("端口", text: portTextBinding)
 
                 Picker("认证方式", selection: $draft.authMethod) {
                     ForEach(SSHAuthMethod.allCases) { method in
@@ -107,11 +104,38 @@ struct SessionEditorSheet: View {
                     }
                 }
 
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("标签")
+                        .font(.subheadline)
+
+                    HStack(spacing: 8) {
+                        TextField("输入标签后回车或点击添加", text: $tagDraft)
+                            .onSubmit {
+                                appendTagFromDraft()
+                            }
+                        Button("添加") {
+                            appendTagFromDraft()
+                        }
+                        .disabled(tagDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+
+                    if draft.tags.isEmpty {
+                        Text("尚未添加标签")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        SessionTagWrapView(tags: draft.tags) { tag in
+                            removeTag(tag)
+                        }
+                    }
+
+                    Text("标签会显示在会话详情和终端底部栏，用于快速识别环境、角色或用途。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
                 TextField("连接后执行命令", text: $draft.startupCommand, axis: .vertical)
                     .lineLimit(2...4)
-
-                TextField("备注", text: $draft.notes, axis: .vertical)
-                    .lineLimit(3...5)
             }
             .formStyle(.grouped)
 
@@ -146,11 +170,44 @@ struct SessionEditorSheet: View {
         draft.isValid
     }
 
+    private var portTextBinding: Binding<String> {
+        Binding(
+            get: {
+                draft.port > 0 ? String(draft.port) : ""
+            },
+            set: { newValue in
+                // 端口输入应保持纯数字文本，避免受本地化数值格式影响出现千分位分隔符。
+                let digitsOnly = newValue.filter(\.isNumber)
+                guard !digitsOnly.isEmpty else {
+                    draft.port = 0
+                    return
+                }
+
+                if let port = Int(digitsOnly) {
+                    draft.port = port
+                }
+            }
+        )
+    }
+
     private var passwordHelpText: String {
         if draft.passwordStoredInKeychain {
             return "在这里输入新密码并保存，会立即新建或刷新系统 Keychain 条目；留空保存则保持当前已保存密码不变。后续 SSH 和 SFTP 在真正需要密码时都会优先复用。"
         }
         return "关闭后，SSH 和 SFTP 在需要密码时都会提示你手动输入一次；密码不会写入 ShellX 的 sessions.json。"
+    }
+
+    private func appendTagFromDraft() {
+        let trimmedTag = tagDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTag.isEmpty else { return }
+        if !draft.tags.contains(trimmedTag) {
+            draft.tags.append(trimmedTag)
+        }
+        tagDraft = ""
+    }
+
+    private func removeTag(_ tag: String) {
+        draft.tags.removeAll { $0 == tag }
     }
 
     private func selectPrivateKeyFile() {
@@ -179,6 +236,34 @@ struct SessionEditorSheet: View {
 
         privateKeySelectionError = nil
         draft.privateKeyPath = url.path
+    }
+}
+
+private struct SessionTagWrapView: View {
+    let tags: [String]
+    let onRemove: (String) -> Void
+
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), alignment: .leading)], alignment: .leading, spacing: 8) {
+            ForEach(tags, id: \.self) { tag in
+                HStack(spacing: 6) {
+                    Text(tag)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    Button {
+                        onRemove(tag)
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .font(.caption)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Color.accentColor.opacity(0.12), in: Capsule())
+            }
+        }
     }
 }
 

@@ -64,6 +64,9 @@ struct TerminalWindowView: View {
                         .truncationMode(.middle)
                         .foregroundStyle(.secondary)
                 }
+                if let session, !session.tags.isEmpty {
+                    SessionTerminalTagStrip(tags: session.tags)
+                }
                 Spacer()
                 if case .failed = sessionModel.connectionState,
                    let errorMessage = sessionModel.lastExitMessage ?? failureMessage {
@@ -251,6 +254,26 @@ struct TerminalWindowView: View {
         DispatchQueue.main.async {
             handleResult(panel.runModal())
         }
+    }
+}
+
+private struct SessionTerminalTagStrip: View {
+    let tags: [String]
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(tags, id: \.self) { tag in
+                    Text(tag)
+                        .font(.caption2)
+                        .lineLimit(1)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.accentColor.opacity(0.12), in: Capsule())
+                }
+            }
+        }
+        .frame(maxWidth: 280)
     }
 }
 

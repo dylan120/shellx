@@ -419,12 +419,11 @@ private struct SessionDetailView: View {
                         LabeledContent("启动命令", value: session.startupCommand)
                     }
 
-                    if !session.notes.isEmpty {
+                    if !session.tags.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("备注")
+                            Text("标签")
                                 .font(.headline)
-                            Text(session.notes)
-                                .foregroundStyle(.secondary)
+                            SessionTagSummaryView(tags: session.tags)
                         }
                     }
 
@@ -453,6 +452,23 @@ private struct SessionDetailView: View {
                 systemImage: "terminal",
                 description: Text("从左侧文件夹树中的会话项里选择要管理的 SSH 会话。")
             )
+        }
+    }
+}
+
+private struct SessionTagSummaryView: View {
+    let tags: [String]
+
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), alignment: .leading)], alignment: .leading, spacing: 8) {
+            ForEach(tags, id: \.self) { tag in
+                Text(tag)
+                    .font(.caption)
+                    .lineLimit(1)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.accentColor.opacity(0.12), in: Capsule())
+            }
         }
     }
 }

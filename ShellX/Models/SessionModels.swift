@@ -53,7 +53,7 @@ struct SSHSessionProfile: Identifiable, Codable, Hashable {
     var passwordStoredInKeychain: Bool
     var useKeychainForPrivateKey: Bool
     var startupCommand: String
-    var notes: String
+    var tags: [String]
     var createdAt: Date
     var updatedAt: Date
     var lastConnectedAt: Date?
@@ -70,7 +70,7 @@ struct SSHSessionProfile: Identifiable, Codable, Hashable {
         passwordStoredInKeychain: Bool = false,
         useKeychainForPrivateKey: Bool = false,
         startupCommand: String = "",
-        notes: String = "",
+        tags: [String] = [],
         createdAt: Date = .now,
         updatedAt: Date = .now,
         lastConnectedAt: Date? = nil
@@ -86,7 +86,7 @@ struct SSHSessionProfile: Identifiable, Codable, Hashable {
         self.passwordStoredInKeychain = passwordStoredInKeychain
         self.useKeychainForPrivateKey = useKeychainForPrivateKey
         self.startupCommand = startupCommand
-        self.notes = notes
+        self.tags = Self.normalizeTags(tags)
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.lastConnectedAt = lastConnectedAt
@@ -104,6 +104,7 @@ struct SSHSessionProfile: Identifiable, Codable, Hashable {
         case passwordStoredInKeychain
         case useKeychainForPrivateKey
         case startupCommand
+        case tags
         case notes
         case createdAt
         case updatedAt
@@ -123,10 +124,38 @@ struct SSHSessionProfile: Identifiable, Codable, Hashable {
         passwordStoredInKeychain = try container.decodeIfPresent(Bool.self, forKey: .passwordStoredInKeychain) ?? false
         useKeychainForPrivateKey = try container.decodeIfPresent(Bool.self, forKey: .useKeychainForPrivateKey) ?? false
         startupCommand = try container.decodeIfPresent(String.self, forKey: .startupCommand) ?? ""
-        notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        let decodedTags = try container.decodeIfPresent([String].self, forKey: .tags)
+        let legacyNotes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        if let decodedTags {
+            tags = Self.normalizeTags(decodedTags)
+        } else if !legacyNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            // 兼容旧版本 sessions.json，将历史“备注”整体迁移为单个标签，避免语义被拆散。
+            tags = [legacyNotes.trimmingCharacters(in: .whitespacesAndNewlines)]
+        } else {
+            tags = []
+        }
         createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? .now
         updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .now
         lastConnectedAt = try container.decodeIfPresent(Date.self, forKey: .lastConnectedAt)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encodeIfPresent(folderID, forKey: .folderID)
+        try container.encode(name, forKey: .name)
+        try container.encode(host, forKey: .host)
+        try container.encode(port, forKey: .port)
+        try container.encode(username, forKey: .username)
+        try container.encode(authMethod, forKey: .authMethod)
+        try container.encode(privateKeyPath, forKey: .privateKeyPath)
+        try container.encode(passwordStoredInKeychain, forKey: .passwordStoredInKeychain)
+        try container.encode(useKeychainForPrivateKey, forKey: .useKeychainForPrivateKey)
+        try container.encode(startupCommand, forKey: .startupCommand)
+        try container.encode(Self.normalizeTags(tags), forKey: .tags)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(updatedAt, forKey: .updatedAt)
+        try container.encodeIfPresent(lastConnectedAt, forKey: .lastConnectedAt)
     }
 
     var destination: String {
@@ -150,6 +179,14 @@ struct SSHSessionProfile: Identifiable, Codable, Hashable {
         }
 
         return hasName && hasHost && validPort && validPrivateKey
+    }
+
+    private static func normalizeTags(_ tags: [String]) -> [String] {
+        var seen = Set<String>()
+        return tags
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .filter { seen.insert($0).inserted }
     }
 }
 
