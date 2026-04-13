@@ -10,6 +10,7 @@ APP_NAME="ShellX"
 OUTPUT_DIR="$ROOT_DIR/dist"
 DERIVED_DATA_DIR="$ROOT_DIR/.build/DerivedData"
 VOLUME_NAME="ShellX"
+USE_UNSIGNED_BUILD=0
 
 usage() {
   cat <<'EOF'
@@ -17,7 +18,8 @@ usage() {
   ./scripts/build-dmg.sh [选项]
 
 说明：
-  构建未签名的 ShellX.app，并封装成一个可分发的 dmg 安装包。
+  按当前工程签名配置构建 ShellX.app，并封装成一个 dmg 安装包。
+  如需生成未签名安装包，可显式传入 --unsigned。
 
 选项：
   --scheme <name>           指定 Xcode Scheme，默认 ShellX
@@ -26,10 +28,12 @@ usage() {
   --output-dir <path>       指定输出目录，默认 ./dist
   --volume-name <name>      指定 dmg 挂载卷名，默认 ShellX
   --derived-data <path>     指定 DerivedData 目录，默认 ./.build/DerivedData
+  --unsigned                关闭代码签名，生成未签名 app 与 dmg
   -h, --help                显示帮助
 
 示例：
   ./scripts/build-dmg.sh
+  ./scripts/build-dmg.sh --unsigned
   ./scripts/build-dmg.sh --configuration Debug --output-dir ./artifacts
 EOF
 }
@@ -59,6 +63,10 @@ while [[ $# -gt 0 ]]; do
     --derived-data)
       DERIVED_DATA_DIR="$2"
       shift 2
+      ;;
+    --unsigned)
+      USE_UNSIGNED_BUILD=1
+      shift
       ;;
     -h|--help)
       usage
@@ -91,14 +99,23 @@ DMG_PATH="$OUTPUT_DIR/$APP_NAME-${CONFIGURATION}.dmg"
 STAGING_DIR="$OUTPUT_DIR/.dmg-staging"
 
 echo "开始构建 $APP_NAME.app ..."
-xcodebuild \
-  -project "$PROJECT_PATH" \
-  -scheme "$SCHEME" \
-  -configuration "$CONFIGURATION" \
-  -derivedDataPath "$DERIVED_DATA_DIR" \
-  CODE_SIGNING_ALLOWED=NO \
-  CODE_SIGNING_REQUIRED=NO \
-  build
+if [[ "$USE_UNSIGNED_BUILD" -eq 1 ]]; then
+  xcodebuild \
+    -project "$PROJECT_PATH" \
+    -scheme "$SCHEME" \
+    -configuration "$CONFIGURATION" \
+    -derivedDataPath "$DERIVED_DATA_DIR" \
+    CODE_SIGNING_ALLOWED=NO \
+    CODE_SIGNING_REQUIRED=NO \
+    build
+else
+  xcodebuild \
+    -project "$PROJECT_PATH" \
+    -scheme "$SCHEME" \
+    -configuration "$CONFIGURATION" \
+    -derivedDataPath "$DERIVED_DATA_DIR" \
+    build
+fi
 
 if [[ ! -d "$APP_PATH" ]]; then
   echo "未找到构建产物：$APP_PATH" >&2
@@ -124,3 +141,8 @@ rm -rf "$STAGING_DIR"
 echo "构建完成："
 echo "  APP: $APP_PATH"
 echo "  DMG: $DMG_PATH"
+if [[ "$USE_UNSIGNED_BUILD" -eq 1 ]]; then
+  echo "  签名: 未签名"
+else
+  echo "  签名: 使用工程当前签名配置"
+fi
