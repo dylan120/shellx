@@ -320,6 +320,7 @@ struct TerminalWindowView: View {
 }
 
 private struct SessionTerminalTagStrip: View {
+    @Environment(\.colorScheme) private var colorScheme
     let tags: [String]
 
     var body: some View {
@@ -331,11 +332,28 @@ private struct SessionTerminalTagStrip: View {
                         .lineLimit(1)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(Color.accentColor.opacity(0.12), in: Capsule())
+                        .foregroundStyle(tagForegroundColor)
+                        .background(tagBackgroundColor, in: Capsule())
+                        .overlay {
+                            Capsule()
+                                .strokeBorder(tagBorderColor, lineWidth: 1)
+                        }
                 }
             }
         }
         .frame(maxWidth: 280)
+    }
+
+    private var tagForegroundColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.92) : .primary
+    }
+
+    private var tagBackgroundColor: Color {
+        Color.accentColor.opacity(colorScheme == .dark ? 0.26 : 0.12)
+    }
+
+    private var tagBorderColor: Color {
+        Color.accentColor.opacity(colorScheme == .dark ? 0.42 : 0.22)
     }
 }
 
