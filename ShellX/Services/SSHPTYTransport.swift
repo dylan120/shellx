@@ -6,6 +6,7 @@ protocol SSHPTYTransportDelegate: AnyObject {
     func transportDidReceive(_ data: Data)
     func transportDidTerminate(exitCode: Int32?)
     func transportDidDetectZModem(_ trigger: ZModemTrigger)
+    func transportDidUpdateZModemProgress(_ progress: ZModemTransferProgress)
     func transportDidRequestPassword()
     func transportDidFail(_ message: String)
     func transportDidUpdateDebugSnapshot(_ snapshot: String)
@@ -35,6 +36,7 @@ final class SSHPTYTransport {
     private var pendingTrigger: ZModemTrigger?
     private var pendingData = Data()
     private var transferDirection: ZModemTransferDirection?
+    private var progressParser: ZModemProgressParser?
     private var didSeeDownloadCompletionFrame = false
     private var pendingPassword: String?
     private var pendingPasswordSource: SSHPasswordSource?
@@ -212,11 +214,18 @@ final class SSHPTYTransport {
         masterFD = -1
     }
 
-    func startUpload(from fileURL: URL) {
+    func startUpload(from fileURLs: [URL]) {
+        let sortedPaths = fileURLs
+            .map(\.path)
+            .filter { !$0.isEmpty }
+            .sorted()
+        guard !sortedPaths.isEmpty else { return }
+
         startTransfer(
             direction: .uploadToRemote,
             executableName: "sz",
-            arguments: [fileURL.path, "--escape", "--binary", "--bufsize", "4096"]
+            arguments: sortedPaths + ["--escape", "--binary", "--bufsize", "4096"],
+            totalFiles: sortedPaths.count
         )
     }
 
@@ -225,7 +234,8 @@ final class SSHPTYTransport {
             direction: .downloadFromRemote,
             executableName: "rz",
             arguments: ["--rename", "--escape", "--binary", "--bufsize", "4096"],
-            currentDirectory: directoryURL
+            currentDirectory: directoryURL,
+            totalFiles: nil
         )
     }
 
@@ -251,6 +261,7 @@ final class SSHPTYTransport {
         }
         helperProcess = nil
         transferDirection = nil
+        progressParser = nil
         didSeeDownloadCompletionFrame = false
         pendingTrigger = nil
         pendingData.removeAll(keepingCapacity: true)
@@ -347,7 +358,8 @@ final class SSHPTYTransport {
         direction: ZModemTransferDirection,
         executableName: String,
         arguments: [String],
-        currentDirectory: URL? = nil
+        currentDirectory: URL? = nil,
+        totalFiles: Int?
     ) {
         guard pendingTrigger != nil else { return }
 
@@ -383,6 +395,7 @@ final class SSHPTYTransport {
         helperStdOut = stdoutPipe
         helperStdErr = stderrPipe
         transferDirection = direction
+        progressParser = ZModemProgressParser(direction: direction, totalFiles: totalFiles)
         didSeeDownloadCompletionFrame = false
 
         helperOutputHandler = makeHelperReadSource(
@@ -391,7 +404,7 @@ final class SSHPTYTransport {
         )
         helperErrorHandler = makeHelperReadSource(
             fileDescriptor: stderrPipe.fileHandleForReading.fileDescriptor,
-            sink: .discard
+            sink: .progress
         )
         helperOutputHandler?.resume()
         helperErrorHandler?.resume()
@@ -413,7 +426,7 @@ final class SSHPTYTransport {
 
     private enum HelperSink {
         case master
-        case discard
+        case progress
     }
 
     private func makeHelperReadSource(fileDescriptor: Int32, sink: HelperSink) -> DispatchSourceRead {
@@ -423,9 +436,13 @@ final class SSHPTYTransport {
             var buffer = [UInt8](repeating: 0, count: 32768)
             let bytesRead = read(fileDescriptor, &buffer, buffer.count)
             guard bytesRead > 0 else { return }
-            if sink == .master {
+            let data = Data(buffer.prefix(bytesRead))
+            switch sink {
+            case .master:
                 let data = Data(buffer.prefix(bytesRead))
                 self.send(data, trackAsUserInput: false)
+            case .progress:
+                self.handleTransferProgress(data)
             }
         }
         source.setCancelHandler {
@@ -459,15 +476,24 @@ final class SSHPTYTransport {
         didLogRepeatedPasswordPrompt = false
 
         let direction = transferDirection
+        progressParser?.markCompleted()
+        let finalProgress = progressParser
+        progressParser = nil
         transferDirection = nil
 
         let message: String
         if status == 0 {
             switch direction {
             case .uploadToRemote:
-                message = "文件上传完成"
+                message = Self.transferCompletionMessage(
+                    direction: .uploadToRemote,
+                    progress: finalProgress?.progress
+                )
             case .downloadFromRemote:
-                message = "文件下载完成"
+                message = Self.transferCompletionMessage(
+                    direction: .downloadFromRemote,
+                    progress: finalProgress?.progress
+                )
             case .none:
                 message = "传输完成"
             }
@@ -477,6 +503,15 @@ final class SSHPTYTransport {
 
         notifyDelegate { delegate in
             delegate.transportDidFail(message)
+        }
+    }
+
+    private func handleTransferProgress(_ data: Data) {
+        guard var progressParser else { return }
+        guard let progress = progressParser.consume(data) else { return }
+        self.progressParser = progressParser
+        notifyDelegate { delegate in
+            delegate.transportDidUpdateZModemProgress(progress)
         }
     }
 
@@ -603,18 +638,7 @@ final class SSHPTYTransport {
         guard let lastSubmittedUserCommand else {
             return nil
         }
-        let command = lastSubmittedUserCommand
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        guard !command.isEmpty else { return nil }
-
-        if command == "rz" || command.hasPrefix("rz ") {
-            return .uploadToRemote
-        }
-        if command == "sz" || command.hasPrefix("sz ") {
-            return .downloadFromRemote
-        }
-        return nil
+        return Self.preferredZModemDirection(from: lastSubmittedUserCommand)
     }
 
     private func recordUserInput(_ data: Data) {
@@ -675,5 +699,57 @@ final class SSHPTYTransport {
             as: UTF8.self
         )
         return normalized.contains("**B08")
+    }
+
+    static func preferredZModemDirection(from submittedCommand: String) -> ZModemTransferDirection? {
+        let command = submittedCommand
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !command.isEmpty else { return nil }
+
+        // 终端里常见的是 `tmux ... 'sz file'`、`bash -lc "rz"` 这类包装命令；
+        // 这里不要求命令必须位于行首，只取最后一个独立的 rz/sz token 作为方向线索。
+        let pattern = #"(?<![\w/\.-])(rz|sz)(?=(?:\s|$|["';|&)\]}]))"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return nil
+        }
+        let range = NSRange(command.startIndex..<command.endIndex, in: command)
+        let matches = regex.matches(in: command, options: [], range: range)
+        guard let lastMatch = matches.last,
+              let valueRange = Range(lastMatch.range(at: 1), in: command) else {
+            return nil
+        }
+
+        switch String(command[valueRange]) {
+        case "rz":
+            return .uploadToRemote
+        case "sz":
+            return .downloadFromRemote
+        default:
+            return nil
+        }
+    }
+
+    private static func transferCompletionMessage(
+        direction: ZModemTransferDirection,
+        progress: ZModemTransferProgress?
+    ) -> String {
+        let fallback = direction == .uploadToRemote ? "文件上传完成" : "文件下载完成"
+        guard let progress else { return fallback }
+
+        let fileCount = max(progress.completedFiles, progress.totalFiles ?? 0)
+        if fileCount > 1 {
+            return direction == .uploadToRemote
+                ? "已完成上传 \(fileCount) 个文件"
+                : "已完成下载 \(fileCount) 个文件"
+        }
+
+        if let currentFileName = progress.currentFileName, !currentFileName.isEmpty {
+            return direction == .uploadToRemote
+                ? "已完成上传 \(currentFileName)"
+                : "已完成下载 \(currentFileName)"
+        }
+
+        return fallback
     }
 }

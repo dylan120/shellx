@@ -377,6 +377,46 @@ final class AppViewModelTests: XCTestCase {
         XCTAssertEqual(trigger, .uploadRequest)
     }
 
+    func testPreferredZModemDirectionRecognizesTmuxWrappedSzCommand() {
+        let direction = SSHPTYTransport.preferredZModemDirection(
+            from: "tmux split-window -h 'sz logs.tar.gz'"
+        )
+
+        XCTAssertEqual(direction, .downloadFromRemote)
+    }
+
+    func testPreferredZModemDirectionRecognizesNestedShellWrappedRzCommand() {
+        let direction = SSHPTYTransport.preferredZModemDirection(
+            from: "bash -lc \"exec rz --escape\""
+        )
+
+        XCTAssertEqual(direction, .uploadToRemote)
+    }
+
+    func testZModemProgressParserExtractsCurrentFileAndPercent() {
+        var parser = ZModemProgressParser(direction: .uploadToRemote, totalFiles: 2)
+
+        let progress = parser.consume(
+            Data("Sending: report.log\rreport.log 45% 450 KB/1 MB 120 KB/s 00:04 ETA\r".utf8)
+        )
+
+        XCTAssertEqual(progress?.currentFileName, "report.log")
+        XCTAssertEqual(progress?.percent, 45)
+        XCTAssertEqual(progress?.totalFiles, 2)
+        XCTAssertEqual(progress?.completedFiles, 0)
+    }
+
+    func testZModemProgressParserTracksMultipleFiles() {
+        var parser = ZModemProgressParser(direction: .downloadFromRemote)
+
+        _ = parser.consume(Data("Receiving: first.txt\r".utf8))
+        let progress = parser.consume(Data("Receiving: second.txt\r".utf8))
+
+        XCTAssertEqual(progress?.currentFileName, "second.txt")
+        XCTAssertEqual(progress?.completedFiles, 1)
+        XCTAssertEqual(progress?.totalFiles, 2)
+    }
+
     func testSanitizedTransferSeedDropsPromptBeforeDownloadHandshake() {
         let raw = Data("(base) dylan@dev:~$ sz file\r\n**B00000000000000".utf8)
 

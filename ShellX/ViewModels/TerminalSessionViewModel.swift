@@ -331,6 +331,10 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         }
     }
 
+    func transportDidUpdateZModemProgress(_ progress: ZModemTransferProgress) {
+        transferState = .transferring(progress)
+    }
+
     func transportDidRequestPassword() {
         guard let session = activeSession, session.authMethod == .password else { return }
         transport.recordSSHAuthDebugEvent("ssh.passwordPrompt.requestedByTransport session=\(session.id.uuidString)")
@@ -509,12 +513,25 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         connectionState = .failed("已取消密码输入")
     }
 
-    func handleUploadSelection(_ result: Result<URL, Error>) {
+    func handleUploadSelection(_ result: Result<[URL], Error>) {
         switch result {
-        case .success(let fileURL):
+        case .success(let fileURLs):
+            guard !fileURLs.isEmpty else {
+                transport.cancelTransfer(sendCancel: true)
+                transferState = .failed("未选择要上传的文件")
+                lastExitMessage = "未选择要上传的文件"
+                scheduleTransferBannerReset(message: "未选择要上传的文件")
+                zmodemSelectionRequest = nil
+                return
+            }
             cancelTransferBannerReset()
-            transferState = .transferring(.uploadToRemote)
-            transport.startUpload(from: fileURL)
+            let progress = ZModemTransferProgress(
+                direction: .uploadToRemote,
+                completedFiles: 0,
+                totalFiles: fileURLs.count
+            )
+            transferState = .transferring(progress)
+            transport.startUpload(from: fileURLs)
         case .failure:
             transport.cancelTransfer(sendCancel: true)
             transferState = .failed("已取消上传")
@@ -528,7 +545,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         switch result {
         case .success(let directoryURL):
             cancelTransferBannerReset()
-            transferState = .transferring(.downloadFromRemote)
+            transferState = .transferring(ZModemTransferProgress(direction: .downloadFromRemote))
             transport.startDownload(to: directoryURL)
         case .failure:
             transport.cancelTransfer(sendCancel: true)

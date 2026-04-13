@@ -245,21 +245,25 @@ struct TerminalWindowView: View {
         NSApp.activate(ignoringOtherApps: true)
 
         let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = false
+        panel.allowsMultipleSelection = request == .upload
         panel.canCreateDirectories = request == .download
         panel.canChooseFiles = request == .upload
         panel.canChooseDirectories = request == .download
         panel.resolvesAliases = true
-        panel.message = request == .upload ? "选择要上传到远端的本地文件" : "选择接收远端文件的本地目录"
+        panel.message = request == .upload ? "选择要上传到远端的本地文件，可多选" : "选择接收远端文件的本地目录"
         panel.prompt = request == .upload ? "上传" : "选择目录"
 
         let handleResult: (NSApplication.ModalResponse) -> Void = { response in
             isPresentingZModemPanel = false
-            if response == .OK, let url = panel.url {
+            if response == .OK {
                 switch request {
                 case .upload:
-                    sessionModel.handleUploadSelection(.success(url))
+                    sessionModel.handleUploadSelection(.success(panel.urls))
                 case .download:
+                    guard let url = panel.url else {
+                        sessionModel.handleDownloadSelection(.failure(CocoaError(.fileNoSuchFile)))
+                        return
+                    }
                     sessionModel.handleDownloadSelection(.success(url))
                 }
             } else {
