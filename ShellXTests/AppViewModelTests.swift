@@ -3,6 +3,22 @@ import XCTest
 
 @MainActor
 final class AppViewModelTests: XCTestCase {
+    func testAppearancePreferenceRoundTripsSupportedModes() {
+        let originalValue = ShellXPreferences.appearanceMode
+        defer {
+            ShellXPreferences.appearanceMode = originalValue
+        }
+
+        ShellXPreferences.appearanceMode = .dark
+        XCTAssertEqual(ShellXPreferences.appearanceMode, .dark)
+
+        ShellXPreferences.appearanceMode = .light
+        XCTAssertEqual(ShellXPreferences.appearanceMode, .light)
+
+        ShellXPreferences.appearanceMode = .system
+        XCTAssertEqual(ShellXPreferences.appearanceMode, .system)
+    }
+
     func testTerminalScrollbackPreferenceClampsToSupportedRange() {
         let originalValue = ShellXPreferences.terminalScrollbackLines
         defer {
