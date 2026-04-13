@@ -740,11 +740,32 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
             blue: 0.05,
             alpha: 1
         )
+        // 为 ANSI 16 色提供更高对比的基色，避免 ls、日志等级和告警色在深色背景上发灰发白。
+        terminalView.installColors(Self.highContrastTerminalPalette)
         terminalView.caretColor = .systemGreen
         terminalView.layer?.backgroundColor = terminalView.nativeBackgroundColor.cgColor
         terminalView.getTerminal().setCursorStyle(.steadyBlock)
         terminalView.autoresizingMask = [.width, .height]
     }
+
+    private static let highContrastTerminalPalette: [Color] = [
+        Color(red8: 0x11, green8: 0x14, blue8: 0x1A), // black
+        Color(red8: 0xFF, green8: 0x5F, blue8: 0x56), // red
+        Color(red8: 0x5A, green8: 0xD9, blue8: 0x7A), // green
+        Color(red8: 0xF4, green8: 0xC4, blue8: 0x30), // yellow
+        Color(red8: 0x6A, green8: 0xB7, blue8: 0xFF), // blue
+        Color(red8: 0xD9, green8: 0x7A, blue8: 0xFF), // magenta
+        Color(red8: 0x41, green8: 0xD6, blue8: 0xD6), // cyan
+        Color(red8: 0xD5, green8: 0xDB, blue8: 0xE3), // white
+        Color(red8: 0x4B, green8: 0x53, blue8: 0x60), // bright black
+        Color(red8: 0xFF, green8: 0x7B, blue8: 0x72), // bright red
+        Color(red8: 0x7E, green8: 0xF7, blue8: 0xA2), // bright green
+        Color(red8: 0xFF, green8: 0xDD, blue8: 0x57), // bright yellow
+        Color(red8: 0x8C, green8: 0xC8, blue8: 0xFF), // bright blue
+        Color(red8: 0xEE, green8: 0xA1, blue8: 0xFF), // bright magenta
+        Color(red8: 0x6F, green8: 0xF0, blue8: 0xF0), // bright cyan
+        Color(red8: 0xF3, green8: 0xF6, blue8: 0xFA)  // bright white
+    ]
 
     private func handleUploadTrigger() {
         cancelTransferBannerReset()
