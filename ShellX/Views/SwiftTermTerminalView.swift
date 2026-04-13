@@ -5,6 +5,14 @@ import SwiftUI
 struct SwiftTermTerminalView: NSViewRepresentable {
     @ObservedObject var sessionModel: TerminalSessionViewModel
 
+    final class Coordinator {
+        var attachedViewIdentity: ObjectIdentifier?
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
     func makeNSView(context: Context) -> ShellXTerminalView {
         let terminalView = ShellXTerminalView(frame: .zero)
         terminalView.autoresizingMask = [.width, .height]
@@ -16,10 +24,16 @@ struct SwiftTermTerminalView: NSViewRepresentable {
         nsView.onSelectionChanged = { hasSelection in
             sessionModel.updateTextSelectionState(hasSelection)
         }
+
+        let currentViewIdentity = ObjectIdentifier(nsView)
+        guard context.coordinator.attachedViewIdentity != currentViewIdentity else {
+            return
+        }
+        context.coordinator.attachedViewIdentity = currentViewIdentity
+
         // SwiftUI 初次创建 NSView 时，底层尺寸常常还没稳定。
         // 延后到 update 阶段再附着，避免终端按过大的初始行数启动，导致全屏程序首屏顶部被裁掉。
         DispatchQueue.main.async {
-            nsView.applyRuntimePreferences()
             sessionModel.attachTerminalView(nsView)
         }
     }

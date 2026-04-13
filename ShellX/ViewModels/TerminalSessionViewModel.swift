@@ -952,13 +952,17 @@ extension TerminalSessionViewModel: TerminalViewDelegate {
         Task { @MainActor [weak self] in
             guard let self else { return }
             let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-            self.terminalTitle = trimmed.isEmpty ? (self.runtimeKind?.defaultTitle ?? "终端") : title
+            let nextTitle = trimmed.isEmpty ? (self.runtimeKind?.defaultTitle ?? "终端") : title
+            guard self.terminalTitle != nextTitle else { return }
+            self.terminalTitle = nextTitle
         }
     }
 
     nonisolated func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {
         Task { @MainActor [weak self] in
-            self?.workingDirectory = directory
+            guard let self else { return }
+            guard self.workingDirectory != directory else { return }
+            self.workingDirectory = directory
         }
     }
 
