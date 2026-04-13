@@ -7,6 +7,7 @@ struct SwiftTermTerminalView: NSViewRepresentable {
 
     final class Coordinator {
         var attachedViewIdentity: ObjectIdentifier?
+        var attachedSessionModelIdentity: ObjectIdentifier?
     }
 
     func makeCoordinator() -> Coordinator {
@@ -26,13 +27,18 @@ struct SwiftTermTerminalView: NSViewRepresentable {
         }
 
         let currentViewIdentity = ObjectIdentifier(nsView)
-        guard context.coordinator.attachedViewIdentity != currentViewIdentity else {
+        let currentSessionModelIdentity = ObjectIdentifier(sessionModel)
+        let isSameView = context.coordinator.attachedViewIdentity == currentViewIdentity
+        let isSameSessionModel = context.coordinator.attachedSessionModelIdentity == currentSessionModelIdentity
+        guard !(isSameView && isSameSessionModel) else {
             return
         }
         context.coordinator.attachedViewIdentity = currentViewIdentity
+        context.coordinator.attachedSessionModelIdentity = currentSessionModelIdentity
 
         // SwiftUI 初次创建 NSView 时，底层尺寸常常还没稳定。
         // 延后到 update 阶段再附着，避免终端按过大的初始行数启动，导致全屏程序首屏顶部被裁掉。
+        // 当 SwiftUI 复用同一个 NSView 但切换到新的会话模型时，也需要重新附着，否则新会话收不到输出。
         DispatchQueue.main.async {
             sessionModel.attachTerminalView(nsView)
         }
