@@ -26,6 +26,11 @@ struct SwiftTermTerminalView: NSViewRepresentable {
 }
 
 final class ShellXTerminalView: TerminalView {
+    private enum KeyBinding {
+        static let moveToLineStart = UInt8(0x01) // Ctrl-A
+        static let moveToLineEnd = UInt8(0x05)   // Ctrl-E
+    }
+
     private var pendingSelectionCopyTask: DispatchWorkItem?
     private var outsideClickMonitor: Any?
     private var preferencesObserver: Any?
@@ -60,6 +65,13 @@ final class ShellXTerminalView: TerminalView {
         // 选区拖动过程中会连续触发 selectionChanged，这里做一次轻量去抖，
         // 只在用户短暂停止拖动后再自动复制，避免频繁覆盖剪贴板。
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: copyTask)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if handleCommandArrowKey(event) {
+            return
+        }
+        super.keyDown(with: event)
     }
 
     deinit {
@@ -113,6 +125,25 @@ final class ShellXTerminalView: TerminalView {
             NSEvent.removeMonitor(outsideClickMonitor)
             self.outsideClickMonitor = nil
         }
+    }
+
+    private func handleCommandArrowKey(_ event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard modifiers == .command else { return false }
+
+        let controlByte: UInt8
+        switch event.keyCode {
+        case 123:
+            controlByte = KeyBinding.moveToLineStart
+        case 124:
+            controlByte = KeyBinding.moveToLineEnd
+        default:
+            return false
+        }
+
+        // 终端里的大多数 readline / prompt-toolkit / CLI 编辑器都能识别 Ctrl-A / Ctrl-E。
+        send(data: [controlByte][...])
+        return true
     }
 
     private func startObservingPreferences() {
