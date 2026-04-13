@@ -348,7 +348,7 @@ final class AppViewModel: ObservableObject {
             terminalTabs.append(
                 TerminalTabState(
                     id: Self.localTerminalID,
-                    kind: .local(shellPath: Self.defaultLocalShellPath, launchMode: .login)
+                    kind: .local(shellPath: Self.defaultLocalShellPath, launchMode: .interactive)
                 )
             )
         }

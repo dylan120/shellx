@@ -48,7 +48,7 @@ final class AppViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.openTerminalTabs.first?.title, "本机终端")
         XCTAssertEqual(
             viewModel.openTerminalTabs.first?.kind,
-            .local(shellPath: AppViewModel.defaultLocalShellPath, launchMode: .login)
+            .local(shellPath: AppViewModel.defaultLocalShellPath, launchMode: .interactive)
         )
     }
 
