@@ -761,6 +761,8 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
             blue: 0.05,
             alpha: 1
         )
+        // 切到更鲜艳的 xterm 256 色派生策略，避免 16 色之外的 ANSI/256 色高亮继续发灰。
+        terminalView.getTerminal().options.ansi256PaletteStrategy = .xterm
         // 为 ANSI 16 色提供更高对比的基色，避免 ls、日志等级和告警色在深色背景上发灰发白。
         terminalView.installColors(Self.highContrastTerminalPalette)
         terminalView.caretColor = .systemGreen
@@ -770,21 +772,21 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
     }
 
     private static let highContrastTerminalPalette: [Color] = [
-        color8(0x1C, 0x21, 0x29), // black
-        color8(0xFF, 0x7A, 0x72), // red
-        color8(0x74, 0xF0, 0x97), // green
-        color8(0xFF, 0xD8, 0x57), // yellow
-        color8(0x8A, 0xCC, 0xFF), // blue
-        color8(0xEC, 0x9B, 0xFF), // magenta
-        color8(0x60, 0xEC, 0xEC), // cyan
-        color8(0xE7, 0xED, 0xF5), // white
-        color8(0x6B, 0x76, 0x87), // bright black
-        color8(0xFF, 0xA0, 0x99), // bright red
-        color8(0xA0, 0xFF, 0xBE), // bright green
-        color8(0xFF, 0xEA, 0x7B), // bright yellow
-        color8(0xB2, 0xDD, 0xFF), // bright blue
-        color8(0xF7, 0xC1, 0xFF), // bright magenta
-        color8(0x96, 0xFF, 0xFF), // bright cyan
+        color8(0x24, 0x2B, 0x35), // black
+        color8(0xFF, 0x86, 0x7F), // red
+        color8(0x7E, 0xFF, 0xA3), // green
+        color8(0xFF, 0xE1, 0x66), // yellow
+        color8(0x97, 0xD5, 0xFF), // blue
+        color8(0xF2, 0xA7, 0xFF), // magenta
+        color8(0x6E, 0xF4, 0xF4), // cyan
+        color8(0xEE, 0xF3, 0xFA), // white
+        color8(0x7C, 0x88, 0x9B), // bright black
+        color8(0xFF, 0xB2, 0xAC), // bright red
+        color8(0xB3, 0xFF, 0xCA), // bright green
+        color8(0xFF, 0xF0, 0x8A), // bright yellow
+        color8(0xC0, 0xE3, 0xFF), // bright blue
+        color8(0xFB, 0xCF, 0xFF), // bright magenta
+        color8(0xAE, 0xFF, 0xFF), // bright cyan
         color8(0xFF, 0xFF, 0xFF)  // bright white
     ]
 
