@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	 账号密码模式需要把 SSH/SFTP 密码写入系统 Keychain。
+	 这里显式声明当前应用自己的 Keychain Access Group，避免在
+	 某些本地调试签名身份下调用 SecItemAdd/SecItemCopyMatching
+	 返回 “A required entitlement isn't present”。
+	 -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	</array>
+</dict>
+</plist>
