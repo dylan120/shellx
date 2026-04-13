@@ -51,22 +51,26 @@ final class ShellXTerminalView: TerminalView {
         static let moveToLineEnd = UInt8(0x05)   // Ctrl-E
     }
 
+    private static var sharedKeyEventMonitor: Any?
+    private static var liveViewCount = 0
+
     private var pendingSelectionCopyTask: DispatchWorkItem?
     private var outsideClickMonitor: Any?
-    private var keyEventMonitor: Any?
     private var preferencesObserver: Any?
     var onSelectionChanged: ((Bool) -> Void)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         startObservingPreferences()
-        startObservingKeyEvents()
+        Self.installSharedKeyEventMonitorIfNeeded()
+        Self.liveViewCount += 1
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         startObservingPreferences()
-        startObservingKeyEvents()
+        Self.installSharedKeyEventMonitorIfNeeded()
+        Self.liveViewCount += 1
     }
 
     override func selectionChanged(source: Terminal) {
@@ -94,9 +98,8 @@ final class ShellXTerminalView: TerminalView {
         if let preferencesObserver {
             NotificationCenter.default.removeObserver(preferencesObserver)
         }
-        if let keyEventMonitor {
-            NSEvent.removeMonitor(keyEventMonitor)
-        }
+        Self.liveViewCount = max(0, Self.liveViewCount - 1)
+        Self.removeSharedKeyEventMonitorIfNeeded()
         removeOutsideClickMonitor()
     }
 
@@ -165,24 +168,31 @@ final class ShellXTerminalView: TerminalView {
         return true
     }
 
-    private func startObservingKeyEvents() {
-        keyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self else { return event }
-            guard self.shouldHandleKeyEvent(event), self.handleCommandArrowKey(event) else {
+    private static func installSharedKeyEventMonitorIfNeeded() {
+        guard sharedKeyEventMonitor == nil else { return }
+        sharedKeyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard let terminalView = currentFocusedTerminalView(for: event) else {
+                return event
+            }
+            guard terminalView.handleCommandArrowKey(event) else {
                 return event
             }
             return nil
         }
     }
 
-    private func shouldHandleKeyEvent(_ event: NSEvent) -> Bool {
-        guard let window = self.window, event.window === window else { return false }
+    private static func removeSharedKeyEventMonitorIfNeeded() {
+        guard liveViewCount == 0, let sharedKeyEventMonitor else { return }
+        NSEvent.removeMonitor(sharedKeyEventMonitor)
+        self.sharedKeyEventMonitor = nil
+    }
 
-        // 仅在当前终端实际持有焦点时拦截快捷键，避免影响同窗口内其它输入控件。
+    private static func currentFocusedTerminalView(for event: NSEvent) -> ShellXTerminalView? {
+        guard let window = event.window else { return nil }
         guard let firstResponder = window.firstResponder as? NSView else {
-            return false
+            return nil
         }
-        return firstResponder === self || firstResponder.isDescendant(of: self)
+        return firstResponder.nearestTerminalAncestor()
     }
 
     private func startObservingPreferences() {
@@ -193,5 +203,18 @@ final class ShellXTerminalView: TerminalView {
         ) { [weak self] _ in
             self?.applyRuntimePreferences()
         }
+    }
+}
+
+private extension NSView {
+    func nearestTerminalAncestor() -> ShellXTerminalView? {
+        var currentView: NSView? = self
+        while let view = currentView {
+            if let terminalView = view as? ShellXTerminalView {
+                return terminalView
+            }
+            currentView = view.superview
+        }
+        return nil
     }
 }

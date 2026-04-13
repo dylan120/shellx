@@ -124,7 +124,10 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
     private var passwordPromptPurpose: PasswordPromptPurpose?
     private var hasAttemptedSSHPasswordAutofill = false
     private var transferBannerResetTask: Task<Void, Never>?
+    private var connectionConfirmationTask: Task<Void, Never>?
     private var runtimeKind: TerminalRuntimeKind?
+    private var pendingConnectedHandlerForActiveSession: ((UUID) -> Void)?
+    private var isAwaitingSSHPasswordPrompt = false
 
     var bannerContent: (message: String, isError: Bool)? {
         if let transferMessage = transferState.bannerText {
@@ -218,6 +221,9 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         sftpPathPrompt = nil
         sftpLocalSelectionRequest = nil
         hasAttemptedSSHPasswordAutofill = false
+        isAwaitingSSHPasswordPrompt = false
+        pendingConnectedHandlerForActiveSession = nil
+        cancelConnectionConfirmationTask()
         connectionState = .connecting
         pendingLocalShellPath = nil
         pendingLocalShellLaunchMode = launchMode
@@ -237,6 +243,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         transport.terminate()
         sftpService.terminate()
         cancelTransferBannerReset()
+        cancelConnectionConfirmationTask()
         if case .connected = connectionState {
             connectionState = .disconnected
         }
@@ -248,6 +255,8 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         sftpLocalSelectionRequest = nil
         activeSession = nil
         hasAttemptedSSHPasswordAutofill = false
+        isAwaitingSSHPasswordPrompt = false
+        pendingConnectedHandlerForActiveSession = nil
         pendingLocalShellPath = nil
         hasTextSelection = false
     }
@@ -297,8 +306,11 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         activeSession = nil
         workingDirectory = nil
         cancelTransferBannerReset()
+        cancelConnectionConfirmationTask()
         transferState = .idle
         hostKeyPrompt = nil
+        isAwaitingSSHPasswordPrompt = false
+        pendingConnectedHandlerForActiveSession = nil
         let runtimeKind = self.runtimeKind
 
         guard let exitCode else {
@@ -341,6 +353,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
 
     func transportDidRequestPassword() {
         guard let session = activeSession, session.authMethod == .password else { return }
+        isAwaitingSSHPasswordPrompt = true
         transport.recordSSHAuthDebugEvent("ssh.passwordPrompt.requestedByTransport session=\(session.id.uuidString)")
         // 等远端真正提示 password 后，再尝试读取 Keychain 并自动回填。
         // 单次连接只尝试一次自动填充，避免错误密码或重复提示时再次触发系统授权。
@@ -349,7 +362,9 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
             transport.recordSSHAuthDebugEvent("ssh.passwordPrompt.autofill.begin source=runtimeCache")
             showTransientBanner("已从当前运行缓存中取到 SSH 密码，正在自动继续连接。", delaySeconds: 5)
             connectionState = .connecting
+            isAwaitingSSHPasswordPrompt = false
             transport.providePassword(cachedPassword, source: .runtimeCache)
+            scheduleConnectionConfirmationFallback(for: session.id)
             return
         }
 
@@ -361,7 +376,9 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
                     transport.recordSSHAuthDebugEvent("ssh.passwordPrompt.autofill.resolved source=keychain")
                     showTransientBanner("已从系统 Keychain 读取 SSH 密码，正在自动继续连接。", delaySeconds: 5)
                     connectionState = .connecting
+                    isAwaitingSSHPasswordPrompt = false
                     transport.providePassword(password, source: .keychain)
+                    scheduleConnectionConfirmationFallback(for: session.id)
                     return
                 }
                 transport.recordSSHAuthDebugEvent("ssh.passwordPrompt.autofill.skipped.noPassword source=keychain")
@@ -384,6 +401,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
     }
 
     func transportDidFail(_ message: String) {
+        cancelConnectionConfirmationTask()
         if message.contains("完成") {
             transferState = .completed(message)
             scheduleTransferBannerReset(message: message)
@@ -436,6 +454,8 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         hostKeyPrompt = nil
         pendingSession = nil
         pendingConnectedHandler = nil
+        pendingConnectedHandlerForActiveSession = nil
+        cancelConnectionConfirmationTask()
         connectionState = .failed("已取消主机指纹确认")
     }
 
@@ -463,10 +483,12 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
 
             passwordPrompt = nil
             passwordPromptPurpose = nil
+            isAwaitingSSHPasswordPrompt = false
             showTransientBanner("正在使用本次输入的密码继续连接。")
             connectionState = .connecting
             transport.recordSSHAuthDebugEvent("ssh.passwordPrompt.manualPrompt.submitted")
             transport.providePassword(trimmedPassword, source: .manual)
+            scheduleConnectionConfirmationFallback(for: activeSession.id)
             return
         }
 
@@ -505,6 +527,9 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         if passwordPromptPurpose == .sshConnection {
             passwordPrompt = nil
             passwordPromptPurpose = nil
+            isAwaitingSSHPasswordPrompt = false
+            pendingConnectedHandlerForActiveSession = nil
+            cancelConnectionConfirmationTask()
             transport.terminate()
             connectionState = .failed("已取消密码输入")
             return
@@ -514,6 +539,8 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         passwordPromptPurpose = nil
         pendingSession = nil
         pendingConnectedHandler = nil
+        pendingConnectedHandlerForActiveSession = nil
+        cancelConnectionConfirmationTask()
         connectionState = .failed("已取消密码输入")
     }
 
@@ -672,6 +699,9 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         passwordPrompt = nil
         passwordPromptPurpose = nil
         hasAttemptedSSHPasswordAutofill = false
+        isAwaitingSSHPasswordPrompt = false
+        pendingConnectedHandlerForActiveSession = onConnected
+        cancelConnectionConfirmationTask()
 
         Task {
             await prepareAndStart(session: session, onConnected: onConnected)
@@ -735,16 +765,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
             return
         }
 
-        Task { @MainActor [weak self] in
-            // 当前仍基于系统 ssh 进程，无法精确感知认证成功时刻；
-            // 这里用“会话已启动且未退出”作为最小可用的连接成功近似条件。
-            try? await Task.sleep(for: .seconds(2))
-            guard let self, self.startedSessionID == session.id else { return }
-            if case .connecting = self.connectionState {
-                self.connectionState = .connected
-                onConnected(session.id)
-            }
-        }
+        scheduleConnectionConfirmationFallback(for: session.id)
     }
 
     private func configureAppearance(for terminalView: TerminalView) {
@@ -921,6 +942,42 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         transferBannerResetTask = nil
     }
 
+    private func scheduleConnectionConfirmationFallback(for sessionID: UUID) {
+        cancelConnectionConfirmationTask()
+        connectionConfirmationTask = Task { @MainActor [weak self] in
+            // SSH 认证阶段可能先出现 banner、MFA 或密码提示，不能再像之前那样很快直接标记为已连接。
+            // 这里仅保留一个更长的兜底超时，优先等待真实终端信号（标题/CWD 更新）来确认连接成功。
+            try? await Task.sleep(for: .seconds(8))
+            guard let self else { return }
+            guard self.startedSessionID == sessionID else { return }
+            guard self.hostKeyPrompt == nil, !self.isAwaitingSSHPasswordPrompt else { return }
+            self.markSSHSessionConnectedIfNeeded(sessionID: sessionID)
+        }
+    }
+
+    private func cancelConnectionConfirmationTask() {
+        connectionConfirmationTask?.cancel()
+        connectionConfirmationTask = nil
+    }
+
+    private func markSSHSessionConnectedIfNeeded(sessionID: UUID? = nil) {
+        guard case .connecting = connectionState else { return }
+        guard let activeSession else { return }
+        guard runtimeKind == .ssh(activeSession) else { return }
+        if let sessionID, activeSession.id != sessionID {
+            return
+        }
+
+        connectionState = .connected
+        isAwaitingSSHPasswordPrompt = false
+        cancelConnectionConfirmationTask()
+
+        if let pendingConnectedHandlerForActiveSession {
+            self.pendingConnectedHandlerForActiveSession = nil
+            pendingConnectedHandlerForActiveSession(activeSession.id)
+        }
+    }
+
     // 普通提示与错误分流：临时提示走这里并自动消失，真正错误仍保留在 lastExitMessage。
     private func showTransientBanner(_ message: String, delaySeconds: Double = 3) {
         transientBannerMessage = message
@@ -955,6 +1012,7 @@ extension TerminalSessionViewModel: TerminalViewDelegate {
             let nextTitle = trimmed.isEmpty ? (self.runtimeKind?.defaultTitle ?? "终端") : title
             guard self.terminalTitle != nextTitle else { return }
             self.terminalTitle = nextTitle
+            self.markSSHSessionConnectedIfNeeded()
         }
     }
 
@@ -963,6 +1021,7 @@ extension TerminalSessionViewModel: TerminalViewDelegate {
             guard let self else { return }
             guard self.workingDirectory != directory else { return }
             self.workingDirectory = directory
+            self.markSSHSessionConnectedIfNeeded()
         }
     }
 

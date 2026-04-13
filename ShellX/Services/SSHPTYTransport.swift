@@ -49,6 +49,7 @@ final class SSHPTYTransport {
     private let maxDebugTranscriptLength = 65536
     private var currentUserCommandBuffer = ""
     private var lastSubmittedUserCommand: String?
+    private var activeProcessToken: UInt64 = 0
 
     // Swift 无法稳定直接导入 wait(2) 相关 C 宏，这里按 Darwin 的状态位规则自行解析。
     private static func waitStatus(_ status: Int32) -> Int32 {
@@ -139,6 +140,8 @@ final class SSHPTYTransport {
 
         masterFD = fd
         sshPID = pid
+        activeProcessToken &+= 1
+        let processToken = activeProcessToken
         zmodemDetector.reset()
         pendingTrigger = nil
         pendingData.removeAll(keepingCapacity: true)
@@ -149,17 +152,14 @@ final class SSHPTYTransport {
 
         let readSource = DispatchSource.makeReadSource(fileDescriptor: fd, queue: ioQueue)
         readSource.setEventHandler { [weak self] in
-            self?.handleRead()
-        }
-        readSource.setCancelHandler { [fd] in
-            close(fd)
+            self?.handleRead(expectedFD: fd, token: processToken)
         }
         readSource.resume()
         self.readSource = readSource
 
         let waitSource = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: ioQueue)
         waitSource.setEventHandler { [weak self] in
-            self?.handleExit()
+            self?.handleExit(pid: pid, token: processToken)
         }
         waitSource.resume()
         self.waitSource = waitSource
@@ -187,9 +187,7 @@ final class SSHPTYTransport {
         if trackAsUserInput {
             recordUserInput(data)
         }
-        data.withUnsafeBytes { bytes in
-            _ = write(masterFD, bytes.baseAddress, bytes.count)
-        }
+        _ = writeAll(data, to: masterFD)
     }
 
     func resize(cols: Int, rows: Int) {
@@ -213,13 +211,27 @@ final class SSHPTYTransport {
     func terminate() {
         cancelTransfer(sendCancel: false)
 
-        if sshPID != 0 {
-            kill(sshPID, SIGTERM)
-        }
-
-        cleanupReadResources()
+        activeProcessToken &+= 1
+        let pid = sshPID
         sshPID = 0
+        let fd = masterFD
         masterFD = -1
+        cleanupReadResources()
+        closeFileDescriptorIfNeeded(fd)
+
+        guard pid != 0 else { return }
+        kill(pid, SIGTERM)
+
+        // 主动回收被关闭/重连的子进程，避免在 wait source 已取消后留下僵尸进程。
+        DispatchQueue.global(qos: .utility).async {
+            var status: Int32 = 0
+            while true {
+                let result = waitpid(pid, &status, 0)
+                if result == pid || result == -1 {
+                    break
+                }
+            }
+        }
     }
 
     func startUpload(from fileURLs: [URL]) {
@@ -258,8 +270,6 @@ final class SSHPTYTransport {
         helperErrorHandler = nil
 
         helperStdIn?.fileHandleForWriting.closeFile()
-        helperStdOut?.fileHandleForReading.closeFile()
-        helperStdErr?.fileHandleForReading.closeFile()
         helperStdIn = nil
         helperStdOut = nil
         helperStdErr = nil
@@ -286,11 +296,12 @@ final class SSHPTYTransport {
         debugTranscript.removeAll(keepingCapacity: true)
     }
 
-    private func handleRead() {
-        guard masterFD >= 0 else { return }
+    private func handleRead(expectedFD: Int32, token: UInt64) {
+        guard token == activeProcessToken else { return }
+        guard masterFD == expectedFD, expectedFD >= 0 else { return }
 
         var buffer = [UInt8](repeating: 0, count: 65536)
-        let bytesRead = read(masterFD, &buffer, buffer.count)
+        let bytesRead = read(expectedFD, &buffer, buffer.count)
 
         guard bytesRead > 0 else {
             return
@@ -343,11 +354,22 @@ final class SSHPTYTransport {
         }
     }
 
-    private func handleExit() {
+    private func handleExit(pid: pid_t, token: UInt64) {
         var status: Int32 = 0
-        waitpid(sshPID, &status, 0)
+        let waitResult = waitpid(pid, &status, 0)
+
+        guard waitResult == pid else {
+            return
+        }
 
         cleanupReadResources()
+        if token == activeProcessToken, sshPID == pid {
+            sshPID = 0
+        }
+        if token == activeProcessToken {
+            closeFileDescriptorIfNeeded(masterFD)
+            masterFD = -1
+        }
         let exitCode: Int32?
         if Self.didExit(status) {
             exitCode = Self.exitStatus(status)
@@ -528,6 +550,41 @@ final class SSHPTYTransport {
         waitSource?.cancel()
         readSource = nil
         waitSource = nil
+    }
+
+    private func closeFileDescriptorIfNeeded(_ fd: Int32) {
+        guard fd >= 0 else { return }
+        _ = close(fd)
+    }
+
+    private func writeAll(_ data: Data, to fd: Int32) -> Bool {
+        guard !data.isEmpty else { return true }
+
+        var didSucceed = true
+        data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress else { return }
+
+            var totalBytesWritten = 0
+            while totalBytesWritten < rawBuffer.count {
+                let remainingCount = rawBuffer.count - totalBytesWritten
+                let currentAddress = baseAddress.advanced(by: totalBytesWritten)
+                let writtenCount = write(fd, currentAddress, remainingCount)
+
+                if writtenCount > 0 {
+                    totalBytesWritten += writtenCount
+                    continue
+                }
+
+                if writtenCount == -1 && errno == EINTR {
+                    continue
+                }
+
+                didSucceed = false
+                break
+            }
+        }
+
+        return didSucceed
     }
 
     private func shouldHandlePasswordPrompt(from data: Data) -> Bool {
