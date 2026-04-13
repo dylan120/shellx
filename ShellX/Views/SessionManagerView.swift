@@ -224,6 +224,9 @@ private struct TerminalTabWorkspaceView: View {
                         )
                         .help("右击显示标签操作")
                         .contextMenu {
+                            let hasTabsOnRight = appModel.openTerminalTabs.last?.id != tab.id
+                            let hasOtherTabs = appModel.openTerminalTabs.count > 1
+
                             Button("切换到此标签") {
                                 appModel.activateTerminal(tabID: tab.id)
                             }
@@ -281,6 +284,19 @@ private struct TerminalTabWorkspaceView: View {
                                 SessionPasswordStore.clearDebugSnapshot()
                             }
                             .disabled(SessionPasswordStore.debugSnapshot().isEmpty && sessionModel.terminalDebugSnapshot.isEmpty)
+                            Divider()
+                            Button("关闭右侧标签页") {
+                                appModel.closeTerminalsToRight(of: tab.id)
+                            }
+                            .disabled(!hasTabsOnRight)
+                            Button("关闭其他标签页") {
+                                appModel.closeOtherTerminals(keeping: tab.id)
+                            }
+                            .disabled(!hasOtherTabs)
+                            Button("关闭所有标签页") {
+                                appModel.closeAllTerminals()
+                            }
+                            .disabled(appModel.openTerminalTabs.isEmpty)
                             Divider()
                             Button("关闭标签") {
                                 onClose(tab.id)

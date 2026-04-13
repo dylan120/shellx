@@ -353,6 +353,51 @@ final class AppViewModel: ObservableObject {
         syncSelectionToActiveTerminalTab()
     }
 
+    func closeAllTerminals() {
+        let tabIDs = terminalTabs.map(\.id)
+        for tabID in tabIDs {
+            if let sessionModel = terminalSessionModels.removeValue(forKey: tabID) {
+                sessionModel.terminate()
+            }
+        }
+        terminalTabs.removeAll()
+        activeTerminalTabID = nil
+        syncSelectionToActiveTerminalTab()
+    }
+
+    func closeOtherTerminals(keeping tabID: UUID) {
+        let tabIDsToClose = terminalTabs
+            .filter { $0.id != tabID }
+            .map(\.id)
+        guard !tabIDsToClose.isEmpty else { return }
+
+        for closingTabID in tabIDsToClose {
+            if let sessionModel = terminalSessionModels.removeValue(forKey: closingTabID) {
+                sessionModel.terminate()
+            }
+        }
+        terminalTabs.removeAll { $0.id != tabID }
+        activeTerminalTabID = tabID
+        syncSelectionToActiveTerminalTab()
+    }
+
+    func closeTerminalsToRight(of tabID: UUID) {
+        guard let currentIndex = terminalTabs.firstIndex(where: { $0.id == tabID }),
+              currentIndex < terminalTabs.count - 1 else {
+            return
+        }
+
+        let tabIDsToClose = terminalTabs[(currentIndex + 1)...].map(\.id)
+        for closingTabID in tabIDsToClose {
+            if let sessionModel = terminalSessionModels.removeValue(forKey: closingTabID) {
+                sessionModel.terminate()
+            }
+        }
+        terminalTabs.removeSubrange((currentIndex + 1)...)
+        activeTerminalTabID = tabID
+        syncSelectionToActiveTerminalTab()
+    }
+
     func activateTerminal(tabID: UUID) {
         guard terminalTabs.contains(where: { $0.id == tabID }) else { return }
         activeTerminalTabID = tabID
