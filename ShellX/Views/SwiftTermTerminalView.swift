@@ -27,6 +27,16 @@ final class ShellXTerminalView: TerminalView {
     private var pendingSelectionCopyTask: DispatchWorkItem?
     var onSelectionChanged: ((Bool) -> Void)?
 
+    override func resignFirstResponder() -> Bool {
+        let response = super.resignFirstResponder()
+        if response, selectedRange().length > 0 {
+            // 终端失焦后主动清空选区，避免点击到其他区域时旧选区仍持续高亮。
+            selectNone()
+            onSelectionChanged?(false)
+        }
+        return response
+    }
+
     override func selectionChanged(source: Terminal) {
         super.selectionChanged(source: source)
         onSelectionChanged?(selectedRange().length > 0)
