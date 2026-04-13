@@ -32,8 +32,8 @@ struct ShellXApp: App {
         .commands {
             CommandGroup(after: .newItem) {
                 Divider()
-                Button("全局配置…") {
-                    openSettingsWindow()
+                SettingsLink {
+                    Text("全局配置…")
                 }
             }
         }
@@ -41,11 +41,6 @@ struct ShellXApp: App {
         Settings {
             GlobalPreferencesView()
         }
-    }
-
-    private func openSettingsWindow() {
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-        NSApp.activate(ignoringOtherApps: true)
     }
 }
 
