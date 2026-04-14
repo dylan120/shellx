@@ -55,6 +55,8 @@ final class ShellXTerminalView: TerminalView {
     private static var liveViewCount = 0
 
     private var pendingSelectionCopyTask: DispatchWorkItem?
+    private var selectionAutoScrollTimer: Timer?
+    private var lastSelectionDragEvent: NSEvent?
     private var outsideClickMonitor: Any?
     private var preferencesObserver: Any?
     var onSelectionChanged: ((Bool) -> Void)?
@@ -95,6 +97,7 @@ final class ShellXTerminalView: TerminalView {
     }
 
     deinit {
+        invalidateSelectionAutoScrollTimer()
         if let preferencesObserver {
             NotificationCenter.default.removeObserver(preferencesObserver)
         }
@@ -146,6 +149,96 @@ final class ShellXTerminalView: TerminalView {
         if let outsideClickMonitor {
             NSEvent.removeMonitor(outsideClickMonitor)
             self.outsideClickMonitor = nil
+        }
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        super.mouseDragged(with: event)
+        lastSelectionDragEvent = event
+        updateSelectionAutoScrollState(with: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        invalidateSelectionAutoScrollTimer()
+        lastSelectionDragEvent = nil
+        super.mouseUp(with: event)
+    }
+
+    private func updateSelectionAutoScrollState(with event: NSEvent) {
+        guard selectedRange().length > 0 else {
+            invalidateSelectionAutoScrollTimer()
+            return
+        }
+
+        let localPoint = convert(event.locationInWindow, from: nil)
+        let scrollVelocity = selectionAutoScrollVelocity(for: localPoint)
+        guard scrollVelocity != 0 else {
+            invalidateSelectionAutoScrollTimer()
+            return
+        }
+
+        if selectionAutoScrollTimer == nil {
+            // SwiftTerm 上游在拖拽越界时只记录了滚动方向，没有持续触发滚动。
+            // 这里补一层本地定时器，让用户把鼠标停在终端上下边缘时也能继续扩展选区。
+            selectionAutoScrollTimer = Timer.scheduledTimer(
+                withTimeInterval: 0.05,
+                repeats: true
+            ) { [weak self] _ in
+                self?.performSelectionAutoScrollStep()
+            }
+        }
+    }
+
+    private func performSelectionAutoScrollStep() {
+        guard let event = lastSelectionDragEvent else {
+            invalidateSelectionAutoScrollTimer()
+            return
+        }
+
+        guard NSEvent.pressedMouseButtons & 1 == 1 else {
+            invalidateSelectionAutoScrollTimer()
+            return
+        }
+
+        let localPoint = convert(event.locationInWindow, from: nil)
+        let scrollVelocity = selectionAutoScrollVelocity(for: localPoint)
+        guard scrollVelocity != 0 else {
+            invalidateSelectionAutoScrollTimer()
+            return
+        }
+
+        if scrollVelocity < 0 {
+            scrollUp(lines: -scrollVelocity)
+        } else {
+            scrollDown(lines: scrollVelocity)
+        }
+
+        super.mouseDragged(with: event)
+    }
+
+    private func invalidateSelectionAutoScrollTimer() {
+        selectionAutoScrollTimer?.invalidate()
+        selectionAutoScrollTimer = nil
+    }
+
+    private func selectionAutoScrollVelocity(for localPoint: NSPoint) -> Int {
+        if localPoint.y > bounds.maxY {
+            return -velocity(forOverflow: localPoint.y - bounds.maxY)
+        }
+        if localPoint.y < bounds.minY {
+            return velocity(forOverflow: bounds.minY - localPoint.y)
+        }
+        return 0
+    }
+
+    private func velocity(forOverflow overflow: CGFloat) -> Int {
+        switch overflow {
+        case 0..<18:
+            return 1
+        case 18..<64:
+            return 3
+        default:
+            return 10
         }
     }
 
