@@ -92,7 +92,8 @@ final class SSHPTYTransport {
             executablePath: resolvedShellPath,
             arguments: arguments,
             password: nil,
-            shellEnvironmentPath: resolvedShellPath
+            shellEnvironmentPath: resolvedShellPath,
+            localeEnvironment: Self.localShellLocaleEnvironment()
         )
     }
 
@@ -100,7 +101,8 @@ final class SSHPTYTransport {
         executablePath: String,
         arguments: [String],
         password: String?,
-        shellEnvironmentPath: String?
+        shellEnvironmentPath: String?,
+        localeEnvironment: [(String, String)] = []
     ) {
         terminate()
         pendingPassword = password
@@ -127,6 +129,9 @@ final class SSHPTYTransport {
             if let shellEnvironmentPath {
                 // 本机终端应让 SHELL 与实际启动的 shell 保持一致，避免交互命令读到误导性的旧值。
                 setenv("SHELL", shellEnvironmentPath, 1)
+            }
+            for (key, value) in localeEnvironment {
+                setenv(key, value, 1)
             }
             chdir(NSHomeDirectory())
 
@@ -180,6 +185,29 @@ final class SSHPTYTransport {
         }
 
         return preferred
+    }
+
+    private static func localShellLocaleEnvironment() -> [(String, String)] {
+        let inheritedEnvironment = ProcessInfo.processInfo.environment
+        var localeVariables: [(String, String)] = []
+
+        // Finder 启动的图形应用经常拿不到完整 locale；本机 shell 至少要显式带上 UTF-8，
+        // 否则 `ls`、`printf` 等命令在中文路径下容易退回到 ASCII/C locale，显示成乱码。
+        for key in ["LANG", "LC_ALL", "LC_CTYPE"] {
+            if let value = inheritedEnvironment[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !value.isEmpty {
+                localeVariables.append((key, value.replacingOccurrences(of: "\"", with: "")))
+            }
+        }
+
+        if localeVariables.contains(where: { $0.0 == "LC_ALL" || $0.0 == "LANG" || $0.0 == "LC_CTYPE" }) {
+            return localeVariables
+        }
+
+        return [
+            ("LANG", "en_US.UTF-8"),
+            ("LC_CTYPE", "UTF-8")
+        ]
     }
 
     func send(_ data: Data, trackAsUserInput: Bool = true) {
