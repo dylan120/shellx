@@ -1096,7 +1096,9 @@ extension TerminalSessionViewModel: TerminalViewDelegate {
     nonisolated func send(source: TerminalView, data: ArraySlice<UInt8>) {
         let buffer = Data(data)
         Task { @MainActor [weak self] in
-            self?.transport.send(buffer)
+            let normalizedBuffer = TerminalKeyInputNormalizer.normalizedTerminalInput(buffer)
+            guard !normalizedBuffer.isEmpty else { return }
+            self?.transport.send(normalizedBuffer)
         }
     }
 

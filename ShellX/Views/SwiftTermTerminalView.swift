@@ -360,6 +360,16 @@ enum TerminalKeyInputNormalizer {
         static let interrupt = UInt8(0x03) // Ctrl-C
     }
 
+    private enum ASCII {
+        static let escape = UInt8(0x1B)
+        static let leftBracket = UInt8(0x5B)
+        static let semicolon = UInt8(0x3B)
+        static let colon = UInt8(0x3A)
+        static let digitZero = UInt8(0x30)
+        static let digitNine = UInt8(0x39)
+        static let lowercaseU = UInt8(0x75)
+    }
+
     static func controlSequence(
         forKeyCode keyCode: UInt16,
         modifiers rawModifiers: NSEvent.ModifierFlags
@@ -376,6 +386,110 @@ enum TerminalKeyInputNormalizer {
             // SwiftTerm 在某些远端协商过扩展键盘协议后，会把 Ctrl-C 编成 CSI u 序列。
             // 交互式 shell 需要收到传统 ETX 字节，否则会把序列当普通文本回显到提示符。
             return [ControlByte.interrupt]
+        default:
+            return nil
+        }
+    }
+
+    static func normalizedTerminalInput(_ data: Data) -> Data {
+        let bytes = Array(data)
+        guard bytes.contains(0x1B) else { return data }
+
+        var result: [UInt8] = []
+        result.reserveCapacity(bytes.count)
+
+        var index = bytes.startIndex
+        while index < bytes.endIndex {
+            if let normalizedControlByte = normalizedCSIUControlByte(in: bytes, from: index) {
+                if let byte = normalizedControlByte.byte {
+                    result.append(byte)
+                }
+                index = normalizedControlByte.endIndex
+                continue
+            }
+
+            result.append(bytes[index])
+            index += 1
+        }
+
+        return Data(result)
+    }
+
+    private static func normalizedCSIUControlByte(
+        in bytes: [UInt8],
+        from startIndex: Int
+    ) -> (byte: UInt8?, endIndex: Int)? {
+        guard startIndex + 4 < bytes.endIndex,
+              bytes[startIndex] == ASCII.escape,
+              bytes[startIndex + 1] == ASCII.leftBracket else {
+            return nil
+        }
+
+        var cursor = startIndex + 2
+        guard let keyCode = readDecimalInteger(in: bytes, cursor: &cursor),
+              cursor < bytes.endIndex,
+              bytes[cursor] == ASCII.semicolon else {
+            return nil
+        }
+        cursor += 1
+
+        guard let modifier = readDecimalInteger(in: bytes, cursor: &cursor) else {
+            return nil
+        }
+
+        var eventType: Int?
+        if cursor < bytes.endIndex, bytes[cursor] == ASCII.colon {
+            cursor += 1
+            guard let parsedEventType = readDecimalInteger(in: bytes, cursor: &cursor) else {
+                return nil
+            }
+            eventType = parsedEventType
+        }
+
+        guard cursor < bytes.endIndex,
+              bytes[cursor] == ASCII.lowercaseU,
+              modifier == 5,
+              let controlByte = controlByte(forCSIUKeyCode: keyCode) else {
+            return nil
+        }
+
+        // Kitty/CSI-u 的按键释放事件不应写入 shell；按下和重复事件则还原为传统控制字节。
+        if eventType == 3 {
+            return (nil, cursor + 1)
+        }
+        return (controlByte, cursor + 1)
+    }
+
+    private static func readDecimalInteger(in bytes: [UInt8], cursor: inout Int) -> Int? {
+        let start = cursor
+        var value = 0
+
+        while cursor < bytes.endIndex {
+            let byte = bytes[cursor]
+            guard (ASCII.digitZero...ASCII.digitNine).contains(byte) else {
+                break
+            }
+            value = value * 10 + Int(byte - ASCII.digitZero)
+            cursor += 1
+        }
+
+        return cursor == start ? nil : value
+    }
+
+    private static func controlByte(forCSIUKeyCode keyCode: Int) -> UInt8? {
+        switch keyCode {
+        case 8:
+            return 0x08
+        case 63:
+            return 0x7F
+        case 64:
+            return 0x00
+        case 65...90:
+            return UInt8(keyCode - 64)
+        case 91...95:
+            return UInt8(keyCode - 64)
+        case 97...122:
+            return UInt8(keyCode - 96)
         default:
             return nil
         }

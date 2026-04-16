@@ -28,6 +28,29 @@ final class AppViewModelTests: XCTestCase {
         )
     }
 
+    func testCSIUControlSequencesNormalizeBeforePTYWrite() {
+        XCTAssertEqual(
+            TerminalKeyInputNormalizer.normalizedTerminalInput(Data([0x1B] + Array("[99;5u".utf8))),
+            Data([0x03])
+        )
+
+        XCTAssertEqual(
+            TerminalKeyInputNormalizer.normalizedTerminalInput(Data([0x1B] + Array("[99;5:3u".utf8))),
+            Data()
+        )
+
+        XCTAssertEqual(
+            TerminalKeyInputNormalizer.normalizedTerminalInput(Data([0x1B] + Array("[98;5u".utf8))),
+            Data([0x02])
+        )
+
+        let shiftedSequence = Data([0x1B] + Array("[99;6u".utf8))
+        XCTAssertEqual(
+            TerminalKeyInputNormalizer.normalizedTerminalInput(shiftedSequence),
+            shiftedSequence
+        )
+    }
+
     func testAppearancePreferenceRoundTripsSupportedModes() {
         let originalValue = ShellXPreferences.appearanceMode
         defer {
