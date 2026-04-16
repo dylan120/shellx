@@ -194,6 +194,17 @@ private struct TerminalTabWorkspaceView: View {
                                 Text(tab.title)
                                     .font(.caption.weight(isActive ? .semibold : .regular))
                                     .lineLimit(1)
+                                Button {
+                                    onClose(tab.id)
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.caption)
+                                        .symbolRenderingMode(.hierarchical)
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundStyle(isActive ? Color.white.opacity(0.85) : Color.secondary)
+                                .accessibilityLabel("关闭终端标签")
+                                .help("关闭终端标签")
                             }
                         }
                         .padding(.horizontal, 10)
@@ -222,7 +233,7 @@ private struct TerminalTabWorkspaceView: View {
                                 appModel: appModel
                             )
                         )
-                        .help("右击显示标签操作")
+                        .help("点击切换标签，右击显示更多操作")
                         .contextMenu {
                             let hasTabsOnRight = appModel.openTerminalTabs.last?.id != tab.id
                             let hasOtherTabs = appModel.openTerminalTabs.count > 1
