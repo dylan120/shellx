@@ -15,17 +15,19 @@ final class SessionPasswordStore {
         }
 
         let account = sessionID.uuidString
-        // 账号密码模式希望“首次输入后，后续重启应用也能直接读取”。
-        // 这里统一删除旧条目后按标准登录 Keychain 查询路径重建。
-        let deleteStatus = SecItemDelete(baseQuery(for: account) as CFDictionary)
-        guard deleteStatus == errSecSuccess || deleteStatus == errSecItemNotFound else {
-            Self.recordDiagnostic("savePassword.delete.failure.\(deleteStatus)", sessionID: sessionID)
-            throw PasswordStoreError.keychain(deleteStatus)
+        let updateStatus = SecItemUpdate(
+            baseQuery(for: account) as CFDictionary,
+            [kSecValueData as String: data] as CFDictionary
+        )
+        if updateStatus == errSecSuccess {
+            // 已有标准登录 Keychain 条目时只更新值，避免 delete + add 触发两次系统授权。
+            Self.cachedPasswords[sessionID] = password
+            Self.recordDiagnostic("savePassword.update.success", sessionID: sessionID)
+            return
         }
-        let legacyDeleteStatus = SecItemDelete(legacyBaseQuery(for: account) as CFDictionary)
-        guard legacyDeleteStatus == errSecSuccess || legacyDeleteStatus == errSecItemNotFound else {
-            Self.recordDiagnostic("savePassword.legacyDelete.failure.\(legacyDeleteStatus)", sessionID: sessionID)
-            throw PasswordStoreError.keychain(legacyDeleteStatus)
+        guard updateStatus == errSecItemNotFound else {
+            Self.recordDiagnostic("savePassword.update.failure.\(updateStatus)", sessionID: sessionID)
+            throw PasswordStoreError.keychain(updateStatus)
         }
 
         var addQuery = baseQuery(for: account)
