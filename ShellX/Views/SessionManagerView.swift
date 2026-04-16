@@ -260,7 +260,7 @@ private struct TerminalTabWorkspaceView: View {
                                 appModel.activateTerminal(tabID: tab.id)
                                 sessionModel.terminate()
                             }
-                            if case .ssh(let session) = tab.kind {
+                            if case .ssh = tab.kind {
                                 Divider()
                                 Button("SFTP 上传文件/文件夹") {
                                     appModel.activateTerminal(tabID: tab.id)

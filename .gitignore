@@ -3,4 +3,4 @@ DerivedData/
 build/
 xcuserdata/
 *.xcuserstate
-
+Config/ShellX-Signing.local.xcconfig

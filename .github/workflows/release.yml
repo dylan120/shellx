@@ -1,0 +1,96 @@
+# 工作流名称，显示在 GitHub Actions 页面中，用于识别未签名 DMG 发布流水线。
+name: Release
+
+# 触发器配置，定义哪些 GitHub 事件会启动发布。
+on:
+  # 只在 Git tag 推送时触发，避免普通分支提交误发 Release。
+  push:
+    # 限制 push 触发范围为 tag。
+    tags:
+      # 只接受 v 开头的版本 tag，实际语义版本格式由脚本继续严格校验。
+      - "v*"
+
+# 工作流级权限，遵循最小权限原则。
+permissions:
+  # 创建 GitHub Release 和上传 DMG 资产需要写入仓库内容权限。
+  contents: write
+
+# 并发控制，避免同一个 tag 的重复发布任务互相覆盖。
+concurrency:
+  # 并发分组按当前 Git ref 区分，同一个 tag 只允许一个发布任务运行。
+  group: release-${{ github.ref }}
+  # 发布任务不自动取消已开始的同组任务，避免中途取消导致 Release 状态不确定。
+  cancel-in-progress: false
+
+# 作业集合，当前只保留一个未签名 DMG 发布作业。
+jobs:
+  # 作业 ID，供 GitHub Actions 内部引用。
+  create-release:
+    # 作业展示名称，说明此任务负责构建未签名 DMG 并创建 GitHub Release。
+    name: Build unsigned DMG and create GitHub Release
+    # 使用 GitHub 托管的最新 macOS runner，确保具备 xcodebuild 和 hdiutil。
+    runs-on: macos-latest
+    # 限制最长运行时间，避免包解析、构建或网络等待长时间占用 runner。
+    timeout-minutes: 45
+
+    # 作业步骤列表，按顺序完成 checkout、版本校验、未签名打包和 Release 创建。
+    steps:
+      # 拉取仓库代码，后续脚本、Xcode 工程和打包脚本都依赖本地工作区。
+      - name: Checkout
+        # 使用官方 checkout action 获取触发 tag 对应的代码。
+        uses: actions/checkout@v4
+
+      # 校验发布 tag 与工程版本，阻止版本号不一致的 Release。
+      - name: Validate release version
+        # 给本步骤设置 ID，后续步骤通过 steps.release.outputs 读取 tag 和资产名。
+        id: release
+        # 显式使用 bash，保证正则和严格模式行为一致。
+        shell: bash
+        # 执行 tag 与 MARKETING_VERSION 一致性校验，并输出后续步骤需要的元数据。
+        run: |
+          # 开启严格模式：命令失败、未定义变量或管道失败都会终止步骤。
+          set -euo pipefail
+
+          # 从 GitHub Actions 上下文读取当前触发的 tag 名称。
+          tag_name="${GITHUB_REF_NAME}"
+          # 确保版本读取和 tag 校验脚本可执行，兼容 Git 权限位丢失的情况。
+          chmod +x ./scripts/print-marketing-version.sh ./scripts/validate-release-tag.sh
+          # 校验 tag 形如 v0.2.0，并要求去掉 v 后等于 Xcode 工程 MARKETING_VERSION。
+          ./scripts/validate-release-tag.sh "${tag_name}"
+
+          # 将 tag_name 写入 GitHub Actions 输出，供后续步骤复用。
+          echo "tag_name=${tag_name}" >> "$GITHUB_OUTPUT"
+          # 固定 Release 资产名，保持与打包脚本和应用内更新逻辑一致。
+          echo "asset_name=ShellX-Release.dmg" >> "$GITHUB_OUTPUT"
+
+      # 构建未签名 DMG，不依赖 Apple Developer Program、证书或 notarization。
+      - name: Build unsigned DMG
+        # 显式使用 bash，保证脚本严格模式生效。
+        shell: bash
+        # 运行现有 DMG 打包脚本，并显式关闭代码签名。
+        run: |
+          # 开启严格模式，构建或打包失败都会终止发布。
+          set -euo pipefail
+
+          # 确保 DMG 打包脚本可执行。
+          chmod +x ./scripts/build-dmg.sh
+          # 复用仓库脚本构建 Release app 并封装 DMG，--unsigned 会关闭 Xcode 代码签名。
+          ./scripts/build-dmg.sh --unsigned --output-dir ./dist --volume-name "ShellX ${{ steps.release.outputs.tag_name }}"
+          # 确认 DMG 资产已生成，避免 gh release 上传不存在的文件。
+          test -f "./dist/${{ steps.release.outputs.asset_name }}"
+
+      # 创建 GitHub Release，并上传未签名 DMG。
+      - name: Create GitHub Release
+        # 将 GitHub token 暴露给 gh CLI，用于创建 Release 和上传资产。
+        env:
+          # GitHub Actions 自动注入的 token，权限由 workflow permissions 控制。
+          GH_TOKEN: ${{ github.token }}
+        # 显式使用 bash，保证 gh 命令失败会终止发布。
+        shell: bash
+        # 调用 gh CLI 创建稳定 Release。
+        run: |
+          # 开启严格模式，Release 创建或资产上传失败都会终止发布。
+          set -euo pipefail
+
+          # 创建以 tag 命名的稳定 Release，上传未签名 DMG，并自动生成 Release notes。
+          gh release create "${{ steps.release.outputs.tag_name }}" "./dist/${{ steps.release.outputs.asset_name }}#${{ steps.release.outputs.asset_name }}" --title "ShellX ${{ steps.release.outputs.tag_name }}" --generate-notes --verify-tag

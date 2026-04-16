@@ -1,0 +1,90 @@
+# 工作流名称，显示在 GitHub Actions 页面中，用于识别 PR/main 的基础构建门禁。
+name: CI
+
+# 触发器配置，定义哪些 GitHub 事件会启动此工作流。
+on:
+  # 当有人创建或更新 Pull Request 时运行，提前发现编译和工程配置问题。
+  pull_request:
+  # 当代码直接推送到指定分支时运行，保证主分支持续可构建。
+  push:
+    # 限制 push 触发范围，只在下面列出的分支上运行。
+    branches:
+      # main 是发布主线分支，必须保持可构建状态。
+      - main
+
+# 工作流级权限，遵循最小权限原则。
+permissions:
+  # 只需要读取仓库内容来 checkout 和构建，不需要写 Release 或修改仓库。
+  contents: read
+
+# 并发控制，避免同一引用上的旧 CI 与新 CI 同时占用 macOS runner。
+concurrency:
+  # 并发分组按当前 Git ref 区分，PR 分支和 main 分支互不影响。
+  group: ci-${{ github.ref }}
+  # 新提交到达同一 ref 时取消旧任务，减少无效构建等待。
+  cancel-in-progress: true
+
+# 作业集合，当前只保留一个 macOS 构建作业作为最小有效门禁。
+jobs:
+  # 作业 ID，供 GitHub Actions 内部引用。
+  macos-build:
+    # 作业展示名称，说明此任务负责 macOS 编译验证。
+    name: macOS build
+    # 使用 GitHub 托管的最新 macOS runner，确保可以运行 xcodebuild。
+    runs-on: macos-latest
+    # 限制最长运行时间，避免包解析或编译卡住后长时间占用 runner。
+    timeout-minutes: 30
+
+    # 作业步骤列表，按顺序执行 checkout、版本校验、依赖解析和构建。
+    steps:
+      # 拉取仓库代码，后续脚本和 Xcode 工程都依赖本地工作区。
+      - name: Checkout
+        # 使用官方 checkout action 获取当前 PR 或 main 分支代码。
+        uses: actions/checkout@v4
+
+      # 校验工程版本号格式，防止发版前才发现 MARKETING_VERSION 不符合 tag 规则。
+      - name: Validate project version format
+        # 显式使用 bash，保证正则语法和 set 参数行为一致。
+        shell: bash
+        # 执行版本格式校验脚本。
+        run: |
+          # 开启严格模式：命令失败、未定义变量或管道失败都会终止步骤。
+          set -euo pipefail
+
+          # 确保版本读取脚本有执行权限，兼容 Git 权限位丢失的情况。
+          chmod +x ./scripts/print-marketing-version.sh
+          # 从 Xcode 工程读取当前 MARKETING_VERSION。
+          marketing_version="$(./scripts/print-marketing-version.sh)"
+          # 要求版本号为 x.y.z，和 Release tag vX.Y.Z 的规则保持一致。
+          if [[ ! "$marketing_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            # 输出明确错误，方便在 Actions 日志中定位版本格式问题。
+            echo "MARKETING_VERSION must look like 0.2.0, got: ${marketing_version}" >&2
+            # 版本格式不合规时让 CI 失败。
+            exit 1
+          fi
+
+      # 解析 Swift Package 依赖，提前发现远程包版本或 Xcode 工程依赖配置问题。
+      - name: Resolve Swift packages
+        # 显式使用 bash，保持所有脚本步骤的执行环境一致。
+        shell: bash
+        # 执行 Xcode 包解析命令。
+        run: |
+          # 开启严格模式，任何依赖解析失败都会终止 CI。
+          set -euo pipefail
+
+          # 让 Xcode 根据 ShellX 工程和主 scheme 解析 Swift Package 依赖，不做完整编译。
+          xcodebuild -resolvePackageDependencies -project ShellX.xcodeproj -scheme ShellX
+
+      # 执行未签名 Debug 构建，作为 PR/main 的快速编译门禁。
+      - name: Build app without signing
+        # 显式使用 bash，保证命令失败能被正确捕获。
+        shell: bash
+        # 运行 xcodebuild 编译应用。
+        run: |
+          # 开启严格模式，编译失败时立即让作业失败。
+          set -euo pipefail
+
+          # 构建 ShellX 应用，使用 Debug 配置作为 PR 快反馈构建。
+          # 固定 DerivedData 输出目录，方便定位构建产物和缓存行为。
+          # 关闭签名相关开关，避免 CI 被 Apple Developer 账号、证书或 profile 阻塞。
+          xcodebuild -project ShellX.xcodeproj -scheme ShellX -configuration Debug -derivedDataPath .build/DerivedData CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
