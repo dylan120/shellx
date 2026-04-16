@@ -46,6 +46,7 @@ enum ShellXPreferences {
     private static let appearanceModeKey = "preferences.appearance.mode"
     private static let copySelectionOnSelectKey = "preferences.mouseTrackpad.copySelectionOnSelect"
     private static let terminalScrollbackLinesKey = "preferences.terminal.scrollbackLines"
+    private static let automaticUpdatesEnabledKey = "preferences.updates.automaticEnabled"
 
     static let didChangeNotification = Notification.Name("ShellXPreferences.didChange")
     static let minimumTerminalScrollbackLines = 100
@@ -92,6 +93,15 @@ enum ShellXPreferences {
         }
     }
 
+    static var automaticUpdatesEnabled: Bool {
+        get {
+            UserDefaults.standard.object(forKey: automaticUpdatesEnabledKey) as? Bool ?? false
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: automaticUpdatesEnabledKey)
+        }
+    }
+
     private static func normalizedTerminalScrollbackLines(_ value: Int) -> Int {
         min(max(value, minimumTerminalScrollbackLines), maximumTerminalScrollbackLines)
     }
@@ -100,12 +110,15 @@ enum ShellXPreferences {
 @main
 struct ShellXApp: App {
     @StateObject private var appModel = AppViewModel()
+    @StateObject private var updateService = AppUpdateService()
     @State private var appearanceMode = ShellXPreferences.appearanceMode
+    @State private var didStartAutomaticUpdateCheck = false
 
     var body: some Scene {
         WindowGroup("会话管理", id: "manager-window") {
             SessionManagerView()
                 .environmentObject(appModel)
+                .environmentObject(updateService)
                 .preferredColorScheme(appearanceMode.preferredColorScheme)
                 .onReceive(NotificationCenter.default.publisher(for: ShellXPreferences.didChangeNotification)) { _ in
                     appearanceMode = ShellXPreferences.appearanceMode
@@ -118,6 +131,10 @@ struct ShellXApp: App {
                     applyAppearance(appearanceMode)
                     NSApp?.setActivationPolicy(.regular)
                     await appModel.load()
+                    if ShellXPreferences.automaticUpdatesEnabled, !didStartAutomaticUpdateCheck {
+                        didStartAutomaticUpdateCheck = true
+                        updateService.checkForUpdates(automaticallyInstalls: true)
+                    }
                 }
         }
         .defaultSize(width: 1280, height: 760)
@@ -132,11 +149,17 @@ struct ShellXApp: App {
                 SettingsLink {
                     Text("全局配置…")
                 }
+
+                Button("检查更新…") {
+                    updateService.checkForUpdates()
+                }
+                .disabled(updateService.isBusy)
             }
         }
 
         Settings {
             GlobalPreferencesView()
+                .environmentObject(updateService)
                 .preferredColorScheme(appearanceMode.preferredColorScheme)
                 .onReceive(NotificationCenter.default.publisher(for: ShellXPreferences.didChangeNotification)) { _ in
                     appearanceMode = ShellXPreferences.appearanceMode
@@ -150,9 +173,11 @@ struct ShellXApp: App {
 }
 
 private struct GlobalPreferencesView: View {
+    @EnvironmentObject private var updateService: AppUpdateService
     @State private var appearanceMode = ShellXPreferences.appearanceMode
     @State private var copySelectionOnSelect = ShellXPreferences.copySelectionOnSelect
     @State private var terminalScrollbackLines = ShellXPreferences.terminalScrollbackLines
+    @State private var automaticUpdatesEnabled = ShellXPreferences.automaticUpdatesEnabled
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -237,9 +262,78 @@ private struct GlobalPreferencesView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
+            GroupBox("应用更新") {
+                VStack(alignment: .leading, spacing: 12) {
+                    Toggle(isOn: Binding(
+                        get: { automaticUpdatesEnabled },
+                        set: { newValue in
+                            automaticUpdatesEnabled = newValue
+                            ShellXPreferences.automaticUpdatesEnabled = newValue
+                        }
+                    )) {
+                        HStack(spacing: 6) {
+                            Text("自动更新")
+                            Image(systemName: "questionmark.circle")
+                                .foregroundStyle(.secondary)
+                                .help("开启后，ShellX 启动时会后台检查 GitHub Release；发现新版本会自动下载安装并重启应用。")
+                        }
+                    }
+
+                    HStack(spacing: 12) {
+                        Text("当前版本：\(updateService.currentVersion)")
+                            .foregroundStyle(.secondary)
+
+                        Spacer()
+
+                        Button {
+                            updateService.checkForUpdates()
+                        } label: {
+                            Label("检查更新", systemImage: "arrow.clockwise")
+                        }
+                        .disabled(updateService.isBusy)
+                    }
+
+                    if case .updateAvailable(let release) = updateService.phase {
+                        HStack(spacing: 12) {
+                            Text("可更新到 \(release.tagName)")
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button {
+                                updateService.downloadAndInstallAvailableUpdate()
+                            } label: {
+                                Label("下载并安装", systemImage: "square.and.arrow.down")
+                            }
+                        }
+                    }
+
+                    if let progress = updateService.phase.downloadProgress {
+                        ProgressView(value: progress)
+                            .progressViewStyle(.linear)
+                    }
+
+                    Text(updateService.phase.statusText)
+                        .font(.footnote)
+                        .foregroundStyle(statusColor(for: updateService.phase))
+
+                    if let lastCheckedAt = updateService.lastCheckedAt {
+                        Text("上次检查：\(lastCheckedAt.formatted(date: .numeric, time: .shortened))")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             Spacer()
         }
         .padding(24)
-        .frame(width: 460, height: 430)
+        .frame(width: 520, height: 590)
+    }
+
+    private func statusColor(for phase: AppUpdatePhase) -> Color {
+        if case .failed = phase {
+            return .red
+        }
+        return .secondary
     }
 }

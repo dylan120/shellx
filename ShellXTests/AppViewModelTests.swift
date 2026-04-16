@@ -63,6 +63,25 @@ final class AppViewModelTests: XCTestCase {
         )
     }
 
+    func testAutomaticUpdatePreferenceRoundTrips() {
+        let originalValue = ShellXPreferences.automaticUpdatesEnabled
+        defer {
+            ShellXPreferences.automaticUpdatesEnabled = originalValue
+        }
+
+        ShellXPreferences.automaticUpdatesEnabled = true
+        XCTAssertTrue(ShellXPreferences.automaticUpdatesEnabled)
+
+        ShellXPreferences.automaticUpdatesEnabled = false
+        XCTAssertFalse(ShellXPreferences.automaticUpdatesEnabled)
+    }
+
+    func testUpdateVersionComparisonHandlesTagsAndDifferentComponentCounts() {
+        XCTAssertEqual(AppUpdateService.compareVersions("v1.2.1", "1.2.0"), .orderedDescending)
+        XCTAssertEqual(AppUpdateService.compareVersions("1.2", "1.2.0"), .orderedSame)
+        XCTAssertEqual(AppUpdateService.compareVersions("1.2.0", "1.10.0"), .orderedAscending)
+    }
+
     func testOpenLocalTerminalUsesFixedTabIdentifier() {
         let viewModel = AppViewModel(repository: AppStorageRepository())
 
