@@ -114,8 +114,12 @@ struct ShellXApp: App {
     @State private var appearanceMode = ShellXPreferences.appearanceMode
     @State private var didStartAutomaticUpdateCheck = false
 
+    init() {
+        NSWindow.allowsAutomaticWindowTabbing = false
+    }
+
     var body: some Scene {
-        WindowGroup("会话管理", id: "manager-window") {
+        Window("会话管理", id: "manager-window") {
             SessionManagerView()
                 .environmentObject(appModel)
                 .environmentObject(updateService)
