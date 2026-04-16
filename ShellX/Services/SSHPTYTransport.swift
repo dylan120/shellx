@@ -625,10 +625,7 @@ final class SSHPTYTransport {
             authTranscript = String(authTranscript.suffix(512))
         }
 
-        let didDetectPrompt = authTranscript.contains("password:")
-            || authTranscript.contains("密码:")
-            || authTranscript.contains("密码：")
-            || authTranscript.contains("password for")
+        let didDetectPrompt = Self.containsPasswordPrompt(in: authTranscript)
 
         guard didDetectPrompt else { return false }
 
@@ -648,12 +645,21 @@ final class SSHPTYTransport {
         return true
     }
 
+    private static func containsPasswordPrompt(in text: String) -> Bool {
+        text.contains("password:")
+            || text.contains("密码:")
+            || text.contains("密码：")
+            || text.contains("password for")
+    }
+
     private func sendPasswordIfNeeded() {
         guard let pendingPassword, !didSendPassword else { return }
         let source = pendingPasswordSource?.rawValue ?? "unknown"
         recordSSHAuthDebugEvent("ssh.passwordPrompt.autofill.sent source=\(source) length=\(pendingPassword.count)")
         send(Data((pendingPassword + "\n").utf8), trackAsUserInput: false)
         didSendPassword = true
+        // 密码已经提交后丢弃旧提示窗口，避免后续登录横幅被旧的 "password:" 片段误判为重复提示。
+        authTranscript.removeAll(keepingCapacity: true)
         self.pendingPassword = nil
         pendingPasswordSource = nil
         didRequestPasswordResolution = false
@@ -664,10 +670,7 @@ final class SSHPTYTransport {
         pendingPassword = password
         pendingPasswordSource = source
         recordSSHAuthDebugEvent("ssh.passwordPrompt.autofill.provide source=\(source.rawValue) length=\(password.count)")
-        if authTranscript.contains("password:")
-            || authTranscript.contains("密码:")
-            || authTranscript.contains("密码：")
-            || authTranscript.contains("password for") {
+        if Self.containsPasswordPrompt(in: authTranscript) {
             sendPasswordIfNeeded()
         }
     }

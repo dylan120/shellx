@@ -114,6 +114,8 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
     private let sftpService = SFTPTransferService()
     private let knownHostsService = KnownHostsService()
     private let passwordStore: SessionPasswordStore
+    private var pendingTerminalOutput = Data()
+    private let maxPendingTerminalOutputBytes = 1_048_576
     private var startedSessionID: UUID?
     private var activeSession: SSHSessionProfile?
     private var pendingSession: SSHSessionProfile?
@@ -175,11 +177,13 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
 
     func attachTerminalView(_ terminalView: TerminalView) {
         if self.terminalView === terminalView {
+            flushPendingTerminalOutput(to: terminalView)
             return
         }
         self.terminalView = terminalView
         terminalView.terminalDelegate = self
         configureAppearance(for: terminalView)
+        flushPendingTerminalOutput(to: terminalView)
 
         if let pendingSession, let pendingConnectedHandler {
             self.pendingSession = nil
@@ -190,6 +194,29 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
             self.pendingLocalShellPath = nil
             startLocalShell(shellPath: pendingLocalShellPath, launchMode: pendingLocalShellLaunchMode)
         }
+    }
+
+    private func feed(_ data: Data, to terminalView: TerminalView) {
+        terminalView.feed(byteArray: Array(data)[...])
+    }
+
+    private func bufferPendingTerminalOutput(_ data: Data) {
+        guard !data.isEmpty else { return }
+        pendingTerminalOutput.append(data)
+        if pendingTerminalOutput.count > maxPendingTerminalOutputBytes {
+            pendingTerminalOutput = Data(pendingTerminalOutput.suffix(maxPendingTerminalOutputBytes))
+        }
+    }
+
+    private func flushPendingTerminalOutput(to terminalView: TerminalView) {
+        guard !pendingTerminalOutput.isEmpty else { return }
+        let data = pendingTerminalOutput
+        pendingTerminalOutput.removeAll(keepingCapacity: true)
+        feed(data, to: terminalView)
+    }
+
+    private func clearPendingTerminalOutput() {
+        pendingTerminalOutput.removeAll(keepingCapacity: true)
     }
 
     func updateTextSelectionState(_ hasSelection: Bool) {
@@ -224,6 +251,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
     }
 
     func startLocalShell(shellPath: String = "/bin/zsh", launchMode: LocalShellLaunchMode = .login) {
+        clearPendingTerminalOutput()
         guard terminalView != nil else {
             pendingLocalShellPath = shellPath
             pendingLocalShellLaunchMode = launchMode
@@ -269,6 +297,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
     func terminate() {
         transport.terminate()
         sftpService.terminate()
+        clearPendingTerminalOutput()
         cancelTransferBannerReset()
         cancelConnectionConfirmationTask()
         if case .connected = connectionState {
@@ -325,7 +354,11 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
     }
 
     func transportDidReceive(_ data: Data) {
-        terminalView?.feed(byteArray: Array(data)[...])
+        guard let terminalView else {
+            bufferPendingTerminalOutput(data)
+            return
+        }
+        feed(data, to: terminalView)
     }
 
     func transportDidTerminate(exitCode: Int32?) {
@@ -702,6 +735,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
     }
 
     private func start(session: SSHSessionProfile, onConnected: @escaping (UUID) -> Void) {
+        clearPendingTerminalOutput()
         guard terminalView != nil else {
             pendingSession = session
             pendingConnectedHandler = onConnected
