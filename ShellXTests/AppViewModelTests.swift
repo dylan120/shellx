@@ -1,8 +1,33 @@
 import XCTest
+import AppKit
 @testable import ShellX
 
 @MainActor
 final class AppViewModelTests: XCTestCase {
+    func testControlCNormalizesToInterruptByte() {
+        XCTAssertEqual(
+            TerminalKeyInputNormalizer.controlSequence(
+                forKeyCode: 8,
+                modifiers: [.control]
+            ),
+            [0x03]
+        )
+
+        XCTAssertNil(
+            TerminalKeyInputNormalizer.controlSequence(
+                forKeyCode: 8,
+                modifiers: [.command, .control]
+            )
+        )
+
+        XCTAssertNil(
+            TerminalKeyInputNormalizer.controlSequence(
+                forKeyCode: 8,
+                modifiers: [.option, .control]
+            )
+        )
+    }
+
     func testAppearancePreferenceRoundTripsSupportedModes() {
         let originalValue = ShellXPreferences.appearanceMode
         defer {
@@ -432,6 +457,41 @@ final class AppViewModelTests: XCTestCase {
         XCTAssertEqual(progress?.currentFileName, "second.txt")
         XCTAssertEqual(progress?.completedFiles, 1)
         XCTAssertEqual(progress?.totalFiles, 2)
+    }
+
+    func testSFTPProgressParserExtractsProgressAndSpeed() {
+        var parser = SFTPProgressParser(direction: .download)
+
+        let progress = parser.consume(
+            Data("archive.tar.gz                               42% 2048KB 12.5MB/s 00:03 ETA\r".utf8)
+        )
+
+        XCTAssertEqual(progress?.currentFileName, "archive.tar.gz")
+        XCTAssertEqual(progress?.percent, 42)
+        XCTAssertEqual(progress?.byteSummary, "2048KB")
+        XCTAssertEqual(progress?.speed, "12.5MB/s")
+        XCTAssertEqual(progress?.eta, "00:03")
+    }
+
+    func testSFTPProgressParserTracksMultipleFiles() {
+        var parser = SFTPProgressParser(direction: .upload)
+
+        _ = parser.consume(Data("first.log                                     100% 512KB 8.0MB/s 00:00 ETA\r".utf8))
+        let progress = parser.consume(Data("second.log                                    5% 64KB 1.0MB/s 00:07 ETA\r".utf8))
+
+        XCTAssertEqual(progress?.currentFileName, "second.log")
+        XCTAssertEqual(progress?.completedFiles, 1)
+        XCTAssertEqual(progress?.totalFiles, 2)
+    }
+
+    func testZModemTransferArgumentsDoNotForceSmallBuffer() {
+        let uploadArguments = SSHPTYTransport.zmodemUploadArguments(for: ["/tmp/demo.iso"])
+        let downloadArguments = SSHPTYTransport.zmodemDownloadArguments()
+
+        XCTAssertFalse(uploadArguments.contains("--bufsize"))
+        XCTAssertFalse(downloadArguments.contains("--bufsize"))
+        XCTAssertEqual(Array(uploadArguments.suffix(2)), ["--escape", "--binary"])
+        XCTAssertEqual(downloadArguments, ["--rename", "--escape", "--binary"])
     }
 
     func testSanitizedTransferSeedDropsPromptBeforeDownloadHandshake() {

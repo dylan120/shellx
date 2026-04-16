@@ -101,6 +101,13 @@ struct TerminalWindowView: View {
                     SessionTerminalTagStrip(tags: session.tags)
                 }
                 Spacer()
+                if let transferSummary = sessionModel.footerTransferSummary {
+                    Text(transferSummary)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(sessionModel.footerTransferIsError ? Color.red : .secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
                 if case .failed = sessionModel.connectionState,
                    let errorMessage = sessionModel.lastExitMessage ?? failureMessage {
                     Button {

@@ -148,6 +148,24 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         return nil
     }
 
+    var footerTransferSummary: String? {
+        switch transferState {
+        case .idle:
+            return nil
+        case .completed(let message), .failed(let message):
+            return message
+        default:
+            return transferState.bannerText
+        }
+    }
+
+    var footerTransferIsError: Bool {
+        if case .failed = transferState {
+            return true
+        }
+        return false
+    }
+
     init(passwordStore: SessionPasswordStore = SessionPasswordStore()) {
         self.passwordStore = passwordStore
         super.init()
@@ -995,14 +1013,21 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
 
     func sftpTransferDidStart(message: String) {
         cancelTransferBannerReset()
+        transferState = .idle
         showTransientBanner(message)
     }
 
+    func sftpTransferDidUpdate(progress: SFTPTransferProgress) {
+        transferState = .sftpTransferring(progress)
+    }
+
     func sftpTransferDidComplete(message: String) {
+        transferState = .completed(message)
         showTransientBanner(message)
     }
 
     func sftpTransferDidFail(message: String) {
+        transferState = .failed(message)
         showTransientBanner(message, delaySeconds: 5)
     }
 }

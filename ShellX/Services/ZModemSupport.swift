@@ -14,6 +14,20 @@ enum ZModemTransferDirection: Equatable {
     }
 }
 
+enum SFTPTransferDirection: Equatable {
+    case upload
+    case download
+
+    var displayName: String {
+        switch self {
+        case .upload:
+            return "SFTP 上传中"
+        case .download:
+            return "SFTP 下载中"
+        }
+    }
+}
+
 struct ZModemTransferProgress: Equatable {
     let direction: ZModemTransferDirection
     var currentFileName: String?
@@ -73,10 +87,69 @@ struct ZModemTransferProgress: Equatable {
     }
 }
 
+struct SFTPTransferProgress: Equatable {
+    let direction: SFTPTransferDirection
+    var currentFileName: String?
+    var completedFiles: Int
+    var totalFiles: Int?
+    var percent: Int?
+    var byteSummary: String?
+    var speed: String?
+    var eta: String?
+
+    init(
+        direction: SFTPTransferDirection,
+        currentFileName: String? = nil,
+        completedFiles: Int = 0,
+        totalFiles: Int? = nil,
+        percent: Int? = nil,
+        byteSummary: String? = nil,
+        speed: String? = nil,
+        eta: String? = nil
+    ) {
+        self.direction = direction
+        self.currentFileName = currentFileName
+        self.completedFiles = completedFiles
+        self.totalFiles = totalFiles
+        self.percent = percent
+        self.byteSummary = byteSummary
+        self.speed = speed
+        self.eta = eta
+    }
+
+    var bannerText: String {
+        var parts: [String] = [direction.displayName]
+
+        if let totalFiles, totalFiles > 1 {
+            let currentIndex = min(completedFiles + 1, totalFiles)
+            parts[0] += "（\(currentIndex)/\(totalFiles)）"
+        }
+
+        if let currentFileName, !currentFileName.isEmpty {
+            parts.append(currentFileName)
+        }
+        if let percent {
+            parts.append("\(percent)%")
+        }
+        if let byteSummary, !byteSummary.isEmpty {
+            parts.append(byteSummary)
+        }
+        if let speed, !speed.isEmpty {
+            parts.append(speed)
+        }
+        if let eta, !eta.isEmpty {
+            parts.append("剩余 \(eta)")
+        }
+
+        return parts.joined(separator: " · ")
+    }
+}
+
 enum ZModemTransferState: Equatable {
     case idle
     case preparing(ZModemTransferDirection)
     case transferring(ZModemTransferProgress)
+    case sftpTransferring(SFTPTransferProgress)
     case completed(String)
     case failed(String)
 
@@ -87,6 +160,8 @@ enum ZModemTransferState: Equatable {
         case .preparing(let direction):
             return "\(direction.displayName)，等待选择文件..."
         case .transferring(let progress):
+            return progress.bannerText
+        case .sftpTransferring(let progress):
             return progress.bannerText
         case .completed(let message), .failed(let message):
             return message

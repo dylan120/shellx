@@ -272,7 +272,7 @@ final class SSHPTYTransport {
         startTransfer(
             direction: .uploadToRemote,
             executableName: "sz",
-            arguments: sortedPaths + ["--escape", "--binary", "--bufsize", "4096"],
+            arguments: Self.zmodemUploadArguments(for: sortedPaths),
             totalFiles: sortedPaths.count
         )
     }
@@ -281,7 +281,7 @@ final class SSHPTYTransport {
         startTransfer(
             direction: .downloadFromRemote,
             executableName: "rz",
-            arguments: ["--rename", "--escape", "--binary", "--bufsize", "4096"],
+            arguments: Self.zmodemDownloadArguments(),
             currentDirectory: directoryURL,
             totalFiles: nil
         )
@@ -821,6 +821,16 @@ final class SSHPTYTransport {
         default:
             return nil
         }
+    }
+
+    static func zmodemUploadArguments(for filePaths: [String]) -> [String] {
+        // 之前把 lrzsz 强行限制在 4 KiB 缓冲，会在低延迟局域网里明显压低吞吐；
+        // 这里改回工具默认协商参数，只保留二进制和控制字符转义这两个稳定选项。
+        filePaths + ["--escape", "--binary"]
+    }
+
+    static func zmodemDownloadArguments() -> [String] {
+        ["--rename", "--escape", "--binary"]
     }
 
     private static func transferCompletionMessage(

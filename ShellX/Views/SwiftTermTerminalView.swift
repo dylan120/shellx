@@ -268,16 +268,31 @@ final class ShellXTerminalView: TerminalView {
         return true
     }
 
+    private func handleControlShortcutKey(_ event: NSEvent) -> Bool {
+        guard let bytes = TerminalKeyInputNormalizer.controlSequence(
+            forKeyCode: event.keyCode,
+            modifiers: event.modifierFlags
+        ) else {
+            return false
+        }
+
+        send(data: bytes[...])
+        return true
+    }
+
     private static func installSharedKeyEventMonitorIfNeeded() {
         guard sharedKeyEventMonitor == nil else { return }
         sharedKeyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             guard let terminalView = currentFocusedTerminalView(for: event) else {
                 return event
             }
-            guard terminalView.handleCommandArrowKey(event) else {
-                return event
+            if terminalView.handleControlShortcutKey(event) {
+                return nil
             }
-            return nil
+            if terminalView.handleCommandArrowKey(event) {
+                return nil
+            }
+            return event
         }
     }
 
@@ -336,6 +351,33 @@ final class ShellXTerminalView: TerminalView {
             queue: .main
         ) { [weak self] _ in
             self?.applyRuntimePreferences()
+        }
+    }
+}
+
+enum TerminalKeyInputNormalizer {
+    private enum ControlByte {
+        static let interrupt = UInt8(0x03) // Ctrl-C
+    }
+
+    static func controlSequence(
+        forKeyCode keyCode: UInt16,
+        modifiers rawModifiers: NSEvent.ModifierFlags
+    ) -> [UInt8]? {
+        let modifiers = rawModifiers.intersection(.deviceIndependentFlagsMask)
+        guard modifiers.contains(.control),
+              !modifiers.contains(.command),
+              !modifiers.contains(.option) else {
+            return nil
+        }
+
+        switch keyCode {
+        case 8:
+            // SwiftTerm 在某些远端协商过扩展键盘协议后，会把 Ctrl-C 编成 CSI u 序列。
+            // 交互式 shell 需要收到传统 ETX 字节，否则会把序列当普通文本回显到提示符。
+            return [ControlByte.interrupt]
+        default:
+            return nil
         }
     }
 }

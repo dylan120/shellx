@@ -4,6 +4,7 @@ import Foundation
 @MainActor
 protocol SFTPTransferServiceDelegate: AnyObject {
     func sftpTransferDidStart(message: String)
+    func sftpTransferDidUpdate(progress: SFTPTransferProgress)
     func sftpTransferDidComplete(message: String)
     func sftpTransferDidFail(message: String)
 }
@@ -34,6 +35,15 @@ enum SFTPOperation: Equatable {
             return "SFTP 下载完成：\(remotePath)"
         }
     }
+
+    var transferDirection: SFTPTransferDirection {
+        switch self {
+        case .upload:
+            return .upload
+        case .downloadFile, .downloadDirectory:
+            return .download
+        }
+    }
 }
 
 final class SFTPTransferService {
@@ -49,6 +59,7 @@ final class SFTPTransferService {
     private var didSendCommands = false
     private var transcript = ""
     private var operation: SFTPOperation?
+    private var progressParser: SFTPProgressParser?
 
     deinit {
         terminate()
@@ -67,6 +78,7 @@ final class SFTPTransferService {
         didSendPassword = false
         didSendCommands = false
         transcript.removeAll(keepingCapacity: true)
+        progressParser = SFTPProgressParser(direction: operation.transferDirection)
 
         var windowSize = winsize(ws_row: 24, ws_col: 120, ws_xpixel: 0, ws_ypixel: 0)
         var fd: Int32 = -1
@@ -129,6 +141,7 @@ final class SFTPTransferService {
         didSendCommands = false
         transcript.removeAll(keepingCapacity: true)
         operation = nil
+        progressParser = nil
     }
 
     static func sftpArguments(
@@ -202,6 +215,13 @@ final class SFTPTransferService {
         let chunk = String(decoding: data, as: UTF8.self)
         transcript.append(chunk)
         trimTranscriptIfNeeded()
+        if var progressParser,
+           let progress = progressParser.consume(data) {
+            self.progressParser = progressParser
+            notifyDelegate { delegate in
+                delegate.sftpTransferDidUpdate(progress: progress)
+            }
+        }
 
         if shouldAutoFillPassword(from: data) {
             sendPasswordIfNeeded()
@@ -229,6 +249,8 @@ final class SFTPTransferService {
         didSendPassword = false
         didSendCommands = false
         self.operation = nil
+        progressParser?.markCompleted()
+        progressParser = nil
 
         let transcript = cleanedTranscript()
 
@@ -301,5 +323,123 @@ final class SFTPTransferService {
             .filter { !$0.isEmpty && $0 != "sftp>" }
             .suffix(8)
             .joined(separator: " | ")
+    }
+}
+
+struct SFTPProgressParser {
+    private var textBuffer = ""
+    private(set) var progress: SFTPTransferProgress
+    private var knownFiles: [String] = []
+
+    init(direction: SFTPTransferDirection) {
+        progress = SFTPTransferProgress(direction: direction)
+    }
+
+    mutating func consume(_ data: Data) -> SFTPTransferProgress? {
+        let chunk = Self.normalizedText(from: data)
+        guard !chunk.isEmpty else { return nil }
+
+        textBuffer.append(chunk)
+        if textBuffer.count > 8192 {
+            textBuffer = String(textBuffer.suffix(8192))
+        }
+
+        let segments = textBuffer
+            .split(whereSeparator: { $0 == "\r" || $0 == "\n" })
+            .map(String.init)
+        guard !segments.isEmpty else { return nil }
+
+        var didUpdate = false
+        for segment in segments {
+            let trimmed = segment.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, !trimmed.lowercased().contains("sftp>") else { continue }
+            if applyProgressIfNeeded(from: trimmed) {
+                didUpdate = true
+            }
+        }
+
+        return didUpdate ? progress : nil
+    }
+
+    mutating func markCompleted() {
+        if let currentFileName = progress.currentFileName, !currentFileName.isEmpty {
+            registerFileIfNeeded(currentFileName)
+        }
+        progress.completedFiles = max(progress.completedFiles, knownFiles.count)
+        progress.percent = 100
+        progress.eta = nil
+    }
+
+    private mutating func applyProgressIfNeeded(from line: String) -> Bool {
+        let patterns = [
+            #"^\s*(.+?)\s+(\d{1,3})%\s+([0-9.]+\s*[KMGTP]?B)\s+([0-9.]+\s*[KMGTP]?B/s)\s+([0-9:]+)(?:\s+ETA)?\s*$"#,
+            #"^\s*(.+?)\s+(\d{1,3})%\s+([0-9.]+\s*[KMGTP]?B)\s+([0-9.]+\s*[KMGTP]?B/s)\s*$"#
+        ]
+
+        for pattern in patterns {
+            guard let match = line.matchGroups(of: pattern) else { continue }
+
+            let fileName = match[0]
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            guard !fileName.isEmpty else { continue }
+
+            if progress.currentFileName != fileName {
+                if let current = progress.currentFileName,
+                   !current.isEmpty,
+                   progress.percent == 100 {
+                    registerFileIfNeeded(current)
+                }
+                progress.currentFileName = fileName
+            }
+
+            registerFileIfNeeded(fileName)
+            progress.completedFiles = max(knownFiles.count - 1, 0)
+            progress.totalFiles = max(progress.totalFiles ?? 0, knownFiles.count)
+            progress.percent = Int(match[1])
+            progress.byteSummary = match[2].normalizedTransferMetric
+            progress.speed = match[3].normalizedTransferMetric
+            progress.eta = match.count > 4 ? match[4] : nil
+            return true
+        }
+
+        return false
+    }
+
+    private mutating func registerFileIfNeeded(_ fileName: String) {
+        guard !knownFiles.contains(fileName) else { return }
+        knownFiles.append(fileName)
+    }
+
+    private static func normalizedText(from data: Data) -> String {
+        String(decoding: data, as: UTF8.self)
+            .filter { character in
+                character == "\r" || character == "\n" || character == "\t" || character.isASCII
+            }
+    }
+}
+
+private extension String {
+    var normalizedTransferMetric: String {
+        trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: "", options: .regularExpression)
+    }
+
+    func matchGroups(of pattern: String) -> [String]? {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return nil
+        }
+        let range = NSRange(startIndex..<endIndex, in: self)
+        guard let match = regex.firstMatch(in: self, options: [], range: range),
+              match.numberOfRanges > 1 else {
+            return nil
+        }
+
+        return (1..<match.numberOfRanges).compactMap { index in
+            guard let valueRange = Range(match.range(at: index), in: self) else {
+                return nil
+            }
+            return String(self[valueRange])
+        }
     }
 }
