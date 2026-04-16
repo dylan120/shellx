@@ -236,14 +236,11 @@ private struct SessionTreeRow: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
-        .onTapGesture {
-            appModel.selectedSessionID = session.id
-        }
-        .onTapGesture(count: 2) {
-            appModel.selectedSessionID = session.id
-            onConnectSession(session)
-        }
+        // 双击需要优先识别，否则 macOS List 中单击选择可能抢先消费点击事件。
+        .highPriorityGesture(sessionDoubleClickGesture)
+        .simultaneousGesture(sessionSingleClickGesture)
         .onDrag {
             NSItemProvider(object: SidebarDragItem.session(session.id).payload as NSString)
         }
@@ -268,6 +265,21 @@ private struct SessionTreeRow: View {
 
     private func rowBackground(isSelected: Bool) -> Color {
         isSelected ? Color.accentColor.opacity(0.16) : .clear
+    }
+
+    private var sessionSingleClickGesture: some Gesture {
+        TapGesture(count: 1)
+            .onEnded {
+                appModel.selectedSessionID = session.id
+            }
+    }
+
+    private var sessionDoubleClickGesture: some Gesture {
+        TapGesture(count: 2)
+            .onEnded {
+                appModel.selectedSessionID = session.id
+                onConnectSession(session)
+            }
     }
 }
 

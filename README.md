@@ -143,6 +143,24 @@ git push origin v0.2.0
 
 自动 Release workflow 仅授予 `contents: write` 权限，用于创建 Release 和上传 DMG；当前未签名发布不需要配置 Apple Developer 账号、证书、notarization 或 GitHub Actions Secrets。未签名 DMG 在其他 Mac 上首次打开时可能需要右键“打开”或在系统设置中手动放行。
 
+如果 macOS 提示“ShellX.app 已损坏，无法打开”，通常是未签名应用被 Gatekeeper 隔离。请先把 `ShellX.app` 拖到 `/Applications`，然后执行：
+
+```bash
+sudo codesign --force --deep --sign - /Applications/ShellX.app
+sudo xattr -dr com.apple.quarantine /Applications/ShellX.app
+sudo xattr -cr /Applications/ShellX.app
+open /Applications/ShellX.app
+```
+
+应用内自动更新安装新版本后，也会尝试用当前用户权限自动执行等价的 ad-hoc 重签名和扩展属性清理；由于 GUI 应用无法交互式输入 `sudo` 密码，如果系统仍然拦截，请手动执行上面的命令。
+
+如果只想先做最小放行，也可以只移除隔离属性：
+
+```bash
+xattr -dr com.apple.quarantine /Applications/ShellX.app
+open /Applications/ShellX.app
+```
+
 如果后续要提供正式签名和公证的 DMG，需要先加入 Apple Developer Program，再补充 Developer ID Application 证书、notarization 凭据和对应的 GitHub Actions Secrets。
 
 PR 和 `main` 分支推送会执行 `.github/workflows/ci.yml`，校验 `MARKETING_VERSION` 格式并运行未签名 macOS Debug 构建，用于提前发现 Swift 编译、包解析和工程配置问题。

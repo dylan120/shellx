@@ -92,5 +92,28 @@ jobs:
           # 开启严格模式，Release 创建或资产上传失败都会终止发布。
           set -euo pipefail
 
-          # 创建以 tag 命名的稳定 Release，上传未签名 DMG，并自动生成 Release notes。
-          gh release create "${{ steps.release.outputs.tag_name }}" "./dist/${{ steps.release.outputs.asset_name }}#${{ steps.release.outputs.asset_name }}" --title "ShellX ${{ steps.release.outputs.tag_name }}" --generate-notes --verify-tag
+          # 生成固定的 Release Notes 前置说明，明确未签名 DMG 的首次打开方式。
+          cat > "$RUNNER_TEMP/release-notes.md" <<'EOF'
+          ## 首次打开未签名版本
+
+          当前 DMG 为未签名构建，不需要 Apple Developer 账号即可发布。macOS 首次打开时可能提示“ShellX.app 已损坏，无法打开”。
+
+          请先将 `ShellX.app` 拖到 `/Applications`，然后执行：
+
+          ```bash
+          sudo codesign --force --deep --sign - /Applications/ShellX.app
+          sudo xattr -dr com.apple.quarantine /Applications/ShellX.app
+          sudo xattr -cr /Applications/ShellX.app
+          open /Applications/ShellX.app
+          ```
+
+          如果只想先做最小放行，也可以只移除隔离属性：
+
+          ```bash
+          xattr -dr com.apple.quarantine /Applications/ShellX.app
+          open /Applications/ShellX.app
+          ```
+
+          EOF
+          # 创建以 tag 命名的稳定 Release，上传未签名 DMG，并在说明后追加自动生成的变更记录。
+          gh release create "${{ steps.release.outputs.tag_name }}" "./dist/${{ steps.release.outputs.asset_name }}#${{ steps.release.outputs.asset_name }}" --title "ShellX ${{ steps.release.outputs.tag_name }}" --notes-file "$RUNNER_TEMP/release-notes.md" --generate-notes --verify-tag

@@ -354,6 +354,13 @@ fi
 
 rm -rf "$APP_PATH"
 ditto "$SOURCE_APP" "$APP_PATH"
+
+# 未签名构建通过自动更新落盘后，macOS 可能保留下载隔离属性，导致下次启动被 Gatekeeper 拦截。
+# GUI 自动更新流程不能交互式输入 sudo 密码，因此这里只执行当前用户权限下可完成的本机修复；失败不阻断安装。
+/usr/bin/codesign --force --deep --sign - "$APP_PATH" >/dev/null 2>&1 || true
+/usr/bin/xattr -dr com.apple.quarantine "$APP_PATH" >/dev/null 2>&1 || true
+/usr/bin/xattr -cr "$APP_PATH" >/dev/null 2>&1 || true
+
 open "$APP_PATH"
 """
 }
