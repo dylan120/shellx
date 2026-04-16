@@ -149,11 +149,17 @@ git push origin v0.2.0
 ```bash
 sudo codesign --force --deep --sign - /Applications/ShellX.app
 sudo xattr -dr com.apple.quarantine /Applications/ShellX.app
-sudo xattr -cr /Applications/ShellX.app
 open /Applications/ShellX.app
 ```
 
-应用内自动更新安装新版本后，也会尝试用当前用户权限自动执行等价的 ad-hoc 重签名和扩展属性清理；由于 GUI 应用无法交互式输入 `sudo` 密码，如果系统仍然拦截，请手动执行上面的命令。
+应用内自动更新安装新版本后，也会尝试用当前用户权限自动执行等价的 ad-hoc 重签名和隔离属性清理；由于 GUI 应用无法交互式输入 `sudo` 密码，如果系统仍然拦截，请手动执行上面的命令。
+
+如果执行上面的命令后仍然提示“ShellX.app 已损坏，无法打开”，再手动清理所有扩展属性作为兜底：
+
+```bash
+sudo xattr -cr /Applications/ShellX.app
+open /Applications/ShellX.app
+```
 
 如果只想先做最小放行，也可以只移除隔离属性：
 
