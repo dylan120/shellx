@@ -38,6 +38,7 @@ final class SSHPTYTransport {
     private var transferDirection: ZModemTransferDirection?
     private var progressParser: ZModemProgressParser?
     private var didSeeDownloadCompletionFrame = false
+    private var isCancellingTransfer = false
     private var pendingPassword: String?
     private var pendingPasswordSource: SSHPasswordSource?
     private var authTranscript = ""
@@ -77,23 +78,33 @@ final class SSHPTYTransport {
         terminate()
     }
 
-    func start(arguments: [String], password: String? = nil) {
+    func start(
+        arguments: [String],
+        password: String? = nil,
+        initialWindowSize: (cols: Int, rows: Int)? = nil
+    ) {
         startProcess(
             executablePath: "/usr/bin/ssh",
             arguments: arguments,
             password: password,
-            shellEnvironmentPath: nil
+            shellEnvironmentPath: nil,
+            initialWindowSize: initialWindowSize
         )
     }
 
-    func startLocalShell(shellPath: String, arguments: [String]) {
+    func startLocalShell(
+        shellPath: String,
+        arguments: [String],
+        initialWindowSize: (cols: Int, rows: Int)? = nil
+    ) {
         let resolvedShellPath = Self.preferredLocalShellPath(preferred: shellPath)
         startProcess(
             executablePath: resolvedShellPath,
             arguments: arguments,
             password: nil,
             shellEnvironmentPath: resolvedShellPath,
-            localeEnvironment: Self.localShellLocaleEnvironment()
+            localeEnvironment: Self.localShellLocaleEnvironment(),
+            initialWindowSize: initialWindowSize
         )
     }
 
@@ -102,7 +113,8 @@ final class SSHPTYTransport {
         arguments: [String],
         password: String?,
         shellEnvironmentPath: String?,
-        localeEnvironment: [(String, String)] = []
+        localeEnvironment: [(String, String)] = [],
+        initialWindowSize: (cols: Int, rows: Int)? = nil
     ) {
         terminate()
         pendingPassword = password
@@ -112,7 +124,13 @@ final class SSHPTYTransport {
         pendingPasswordSource = nil
         didLogRepeatedPasswordPrompt = false
 
-        var windowSize = winsize(ws_row: 40, ws_col: 120, ws_xpixel: 0, ws_ypixel: 0)
+        let normalizedWindowSize = Self.normalizedWindowSize(initialWindowSize)
+        var windowSize = winsize(
+            ws_row: UInt16(normalizedWindowSize.rows),
+            ws_col: UInt16(normalizedWindowSize.cols),
+            ws_xpixel: 0,
+            ws_ypixel: 0
+        )
         var fd: Int32 = -1
         let pid = forkpty(&fd, nil, nil, &windowSize)
 
@@ -152,7 +170,8 @@ final class SSHPTYTransport {
         pendingData.removeAll(keepingCapacity: true)
         transferDirection = nil
         didSeeDownloadCompletionFrame = false
-        lastWindowSize = nil
+        isCancellingTransfer = false
+        lastWindowSize = normalizedWindowSize
         debugTranscript.removeAll(keepingCapacity: true)
 
         let readSource = DispatchSource.makeReadSource(fileDescriptor: fd, queue: ioQueue)
@@ -210,6 +229,17 @@ final class SSHPTYTransport {
         ]
     }
 
+    static func normalizedWindowSize(_ proposedSize: (cols: Int, rows: Int)?) -> (cols: Int, rows: Int) {
+        let defaultSize = (cols: 120, rows: 40)
+        guard let proposedSize else { return defaultSize }
+
+        // PTY 的 winsize 字段是 UInt16；这里先做边界收敛，避免异常布局尺寸溢出。
+        return (
+            cols: min(max(proposedSize.cols, 1), Int(UInt16.max)),
+            rows: min(max(proposedSize.rows, 1), Int(UInt16.max))
+        )
+    }
+
     func send(_ data: Data, trackAsUserInput: Bool = true) {
         guard masterFD >= 0 else { return }
         if trackAsUserInput {
@@ -221,12 +251,22 @@ final class SSHPTYTransport {
     func resize(cols: Int, rows: Int) {
         guard masterFD >= 0 else { return }
         guard cols > 0, rows > 0 else { return }
-        if let lastWindowSize, lastWindowSize.cols == cols, lastWindowSize.rows == rows {
+        let normalizedWindowSize = Self.normalizedWindowSize((cols: cols, rows: rows))
+        if let lastWindowSize,
+           lastWindowSize.cols == normalizedWindowSize.cols,
+           lastWindowSize.rows == normalizedWindowSize.rows {
             return
         }
-        var windowSize = winsize(ws_row: UInt16(rows), ws_col: UInt16(cols), ws_xpixel: 0, ws_ypixel: 0)
-        _ = ioctl(masterFD, TIOCSWINSZ, &windowSize)
-        lastWindowSize = (cols, rows)
+        var windowSize = winsize(
+            ws_row: UInt16(normalizedWindowSize.rows),
+            ws_col: UInt16(normalizedWindowSize.cols),
+            ws_xpixel: 0,
+            ws_ypixel: 0
+        )
+        guard ioctl(masterFD, TIOCSWINSZ, &windowSize) == 0 else {
+            return
+        }
+        lastWindowSize = normalizedWindowSize
     }
 
     private func notifyDelegate(_ action: @escaping @MainActor (SSHPTYTransportDelegate) -> Void) {
@@ -288,6 +328,7 @@ final class SSHPTYTransport {
     }
 
     func cancelTransfer(sendCancel: Bool) {
+        isCancellingTransfer = true
         if sendCancel {
             send(ZModemControlBytes.cancel)
         }
@@ -455,6 +496,7 @@ final class SSHPTYTransport {
         transferDirection = direction
         progressParser = ZModemProgressParser(direction: direction, totalFiles: totalFiles)
         didSeeDownloadCompletionFrame = false
+        isCancellingTransfer = false
 
         helperOutputHandler = makeHelperReadSource(
             fileDescriptor: stdoutPipe.fileHandleForReading.fileDescriptor,
@@ -510,6 +552,7 @@ final class SSHPTYTransport {
     }
 
     private func finishTransfer(_ status: Int32) {
+        let wasCancellingTransfer = isCancellingTransfer
         helperOutputHandler?.cancel()
         helperErrorHandler?.cancel()
         helperOutputHandler = nil
@@ -532,12 +575,15 @@ final class SSHPTYTransport {
         didRequestPasswordResolution = false
         pendingPasswordSource = nil
         didLogRepeatedPasswordPrompt = false
+        isCancellingTransfer = false
 
         let direction = transferDirection
         progressParser?.markCompleted()
         let finalProgress = progressParser
         progressParser = nil
         transferDirection = nil
+
+        guard !wasCancellingTransfer else { return }
 
         let message: String
         if status == 0 {
@@ -828,12 +874,12 @@ final class SSHPTYTransport {
 
     static func zmodemUploadArguments(for filePaths: [String]) -> [String] {
         // 之前把 lrzsz 强行限制在 4 KiB 缓冲，会在低延迟局域网里明显压低吞吐；
-        // 这里改回工具默认协商参数，只保留二进制和控制字符转义这两个稳定选项。
-        filePaths + ["--escape", "--binary"]
+        // 这里改回工具默认协商参数，并显式开启 verbose，让 stderr 稳定输出进度信息。
+        ["--escape", "--binary", "--verbose", "--verbose"] + filePaths
     }
 
     static func zmodemDownloadArguments() -> [String] {
-        ["--rename", "--escape", "--binary"]
+        ["--rename", "--escape", "--binary", "--verbose", "--verbose"]
     }
 
     private static func transferCompletionMessage(

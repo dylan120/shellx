@@ -177,12 +177,14 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
 
     func attachTerminalView(_ terminalView: TerminalView) {
         if self.terminalView === terminalView {
+            synchronizeTerminalSizeToTransport()
             flushPendingTerminalOutput(to: terminalView)
             return
         }
         self.terminalView = terminalView
         terminalView.terminalDelegate = self
         configureAppearance(for: terminalView)
+        synchronizeTerminalSizeToTransport()
         flushPendingTerminalOutput(to: terminalView)
 
         if let pendingSession, let pendingConnectedHandler {
@@ -283,7 +285,11 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         pendingLocalShellPath = nil
         pendingLocalShellLaunchMode = launchMode
 
-        transport.startLocalShell(shellPath: shellPath, arguments: launchMode.arguments)
+        transport.startLocalShell(
+            shellPath: shellPath,
+            arguments: launchMode.arguments,
+            initialWindowSize: currentTerminalWindowSize()
+        )
 
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(500))
@@ -734,6 +740,21 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         showTransientBanner("已取消 SFTP 传输。")
     }
 
+    func cancelActiveTransferFromKeyboard() -> Bool {
+        switch transferState {
+        case .preparing(.uploadToRemote), .preparing(.downloadFromRemote), .transferring(_):
+            transport.cancelTransfer(sendCancel: true)
+            markTransferCancelled("已取消 lrzsz 传输")
+            return true
+        case .sftpTransferring(_):
+            sftpService.terminate()
+            markTransferCancelled("已取消 SFTP 传输")
+            return true
+        case .idle, .completed(_), .failed(_):
+            return false
+        }
+    }
+
     private func start(session: SSHSessionProfile, onConnected: @escaping (UUID) -> Void) {
         clearPendingTerminalOutput()
         guard terminalView != nil else {
@@ -819,7 +840,8 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
                     userKnownHostsPath: knownHostsPath,
                     strictHostKeyChecking: strictHostKeyCheckingOverride ?? "no"
                 ),
-                password: password
+                password: password,
+                initialWindowSize: currentTerminalWindowSize()
             )
         } catch {
             connectionState = .failed("读取 known_hosts 路径失败：\(error.localizedDescription)")
@@ -851,6 +873,25 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         terminalView.layer?.backgroundColor = terminalView.nativeBackgroundColor.cgColor
         terminalView.getTerminal().setCursorStyle(.steadyBlock)
         terminalView.autoresizingMask = [.width, .height]
+    }
+
+    private func currentTerminalWindowSize() -> (cols: Int, rows: Int)? {
+        guard let terminalView else { return nil }
+        let terminal = terminalView.getTerminal()
+        guard terminal.cols > 0, terminal.rows > 0 else { return nil }
+        return (cols: terminal.cols, rows: terminal.rows)
+    }
+
+    private func synchronizeTerminalSizeToTransport() {
+        guard let size = currentTerminalWindowSize() else { return }
+        transport.resize(cols: size.cols, rows: size.rows)
+    }
+
+    private func markTransferCancelled(_ message: String) {
+        cancelTransferBannerReset()
+        transferState = .failed(message)
+        lastExitMessage = message
+        scheduleTransferBannerReset(message: message)
     }
 
     private static let highContrastTerminalPalette: [Color] = [
@@ -919,6 +960,8 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
     ) {
         do {
             let knownHostsPath = try KnownHostsService.defaultKnownHostsFilePath()
+            cancelTransferBannerReset()
+            transferState = .sftpTransferring(SFTPTransferProgress(direction: operation.transferDirection))
             sftpService.start(
                 session: session,
                 operation: operation,
@@ -1047,8 +1090,12 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
 
     func sftpTransferDidStart(message: String) {
         cancelTransferBannerReset()
-        transferState = .idle
-        showTransientBanner(message)
+        if case .sftpTransferring = transferState {
+            transientBannerMessage = nil
+        } else {
+            transferState = .idle
+            showTransientBanner(message)
+        }
     }
 
     func sftpTransferDidUpdate(progress: SFTPTransferProgress) {
@@ -1098,6 +1145,10 @@ extension TerminalSessionViewModel: TerminalViewDelegate {
         Task { @MainActor [weak self] in
             let normalizedBuffer = TerminalKeyInputNormalizer.normalizedTerminalInput(buffer)
             guard !normalizedBuffer.isEmpty else { return }
+            if normalizedBuffer == Data([0x03]),
+               self?.cancelActiveTransferFromKeyboard() == true {
+                return
+            }
             self?.transport.send(normalizedBuffer)
         }
     }

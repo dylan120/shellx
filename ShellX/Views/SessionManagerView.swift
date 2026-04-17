@@ -171,6 +171,7 @@ struct SessionManagerView: View {
 private struct TerminalTabWorkspaceView: View {
     @EnvironmentObject private var appModel: AppViewModel
     @State private var draggedTabID: UUID?
+    @State private var pendingCloseRequest: TerminalTabCloseRequest?
 
     let onClose: (UUID) -> Void
 
@@ -195,7 +196,7 @@ private struct TerminalTabWorkspaceView: View {
                                     .font(.caption.weight(isActive ? .semibold : .regular))
                                     .lineLimit(1)
                                 Button {
-                                    onClose(tab.id)
+                                    pendingCloseRequest = .single(tab.id)
                                 } label: {
                                     Image(systemName: "xmark.circle.fill")
                                         .font(.caption)
@@ -297,20 +298,20 @@ private struct TerminalTabWorkspaceView: View {
                             .disabled(SessionPasswordStore.debugSnapshot().isEmpty && sessionModel.terminalDebugSnapshot.isEmpty)
                             Divider()
                             Button("关闭右侧标签页") {
-                                appModel.closeTerminalsToRight(of: tab.id)
+                                pendingCloseRequest = .right(of: tab.id)
                             }
                             .disabled(!hasTabsOnRight)
                             Button("关闭其他标签页") {
-                                appModel.closeOtherTerminals(keeping: tab.id)
+                                pendingCloseRequest = .others(keeping: tab.id)
                             }
                             .disabled(!hasOtherTabs)
                             Button("关闭所有标签页") {
-                                appModel.closeAllTerminals()
+                                pendingCloseRequest = .all
                             }
                             .disabled(appModel.openTerminalTabs.isEmpty)
                             Divider()
                             Button("关闭标签") {
-                                onClose(tab.id)
+                                pendingCloseRequest = .single(tab.id)
                             }
                         }
                     }
@@ -331,7 +332,7 @@ private struct TerminalTabWorkspaceView: View {
                                 localShellPath: shellPath,
                                 localShellLaunchMode: launchMode,
                                 onCloseCurrentTab: {
-                                    appModel.closeTerminal(tabID: tab.id)
+                                    pendingCloseRequest = .single(tab.id)
                                 },
                                 allowsModalPresentation: tab.id == appModel.activeTerminalTabID
                             )
@@ -345,7 +346,7 @@ private struct TerminalTabWorkspaceView: View {
                                 localShellPath: nil,
                                 localShellLaunchMode: .login,
                                 onCloseCurrentTab: {
-                                    appModel.closeTerminal(tabID: tab.id)
+                                    pendingCloseRequest = .single(tab.id)
                                 },
                                 allowsModalPresentation: tab.id == appModel.activeTerminalTabID
                             )
@@ -363,6 +364,29 @@ private struct TerminalTabWorkspaceView: View {
                 )
             }
         }
+        .alert(item: $pendingCloseRequest) { request in
+            Alert(
+                title: Text(request.title),
+                message: Text(request.message),
+                primaryButton: .destructive(Text("确认关闭")) {
+                    performClose(request)
+                },
+                secondaryButton: .cancel(Text("取消"))
+            )
+        }
+    }
+
+    private func performClose(_ request: TerminalTabCloseRequest) {
+        switch request {
+        case .single(let tabID):
+            onClose(tabID)
+        case .right(let tabID):
+            appModel.closeTerminalsToRight(of: tabID)
+        case .others(let tabID):
+            appModel.closeOtherTerminals(keeping: tabID)
+        case .all:
+            appModel.closeAllTerminals()
+        }
     }
 
     private func tabBackground(for sessionID: UUID) -> some ShapeStyle {
@@ -378,6 +402,52 @@ private struct TerminalTabWorkspaceView: View {
             return "复制终端到新标签"
         case .ssh:
             return "复制会话到新标签"
+        }
+    }
+}
+
+private enum TerminalTabCloseRequest: Identifiable, Equatable {
+    case single(UUID)
+    case right(of: UUID)
+    case others(keeping: UUID)
+    case all
+
+    var id: String {
+        switch self {
+        case .single(let tabID):
+            return "single-\(tabID.uuidString)"
+        case .right(let tabID):
+            return "right-\(tabID.uuidString)"
+        case .others(let tabID):
+            return "others-\(tabID.uuidString)"
+        case .all:
+            return "all"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .single:
+            return "关闭终端标签？"
+        case .right:
+            return "关闭右侧标签页？"
+        case .others:
+            return "关闭其他标签页？"
+        case .all:
+            return "关闭所有标签页？"
+        }
+    }
+
+    var message: String {
+        switch self {
+        case .single:
+            return "关闭后当前终端连接会断开，正在运行的命令也会结束。"
+        case .right:
+            return "关闭后右侧终端连接会断开，正在运行的命令也会结束。"
+        case .others:
+            return "关闭后其他终端连接会断开，正在运行的命令也会结束。"
+        case .all:
+            return "关闭后所有终端连接都会断开，正在运行的命令也会结束。"
         }
     }
 }

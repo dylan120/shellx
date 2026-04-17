@@ -86,6 +86,23 @@ final class AppViewModelTests: XCTestCase {
         )
     }
 
+    func testPTYInitialWindowSizeUsesTerminalDimensionsWhenAvailable() {
+        let windowSize = SSHPTYTransport.normalizedWindowSize((cols: 132, rows: 48))
+
+        XCTAssertEqual(windowSize.cols, 132)
+        XCTAssertEqual(windowSize.rows, 48)
+    }
+
+    func testPTYInitialWindowSizeFallsBackAndClampsInvalidValues() {
+        let fallbackWindowSize = SSHPTYTransport.normalizedWindowSize(nil)
+        let clampedWindowSize = SSHPTYTransport.normalizedWindowSize((cols: 0, rows: Int(UInt16.max) + 10))
+
+        XCTAssertEqual(fallbackWindowSize.cols, 120)
+        XCTAssertEqual(fallbackWindowSize.rows, 40)
+        XCTAssertEqual(clampedWindowSize.cols, 1)
+        XCTAssertEqual(clampedWindowSize.rows, Int(UInt16.max))
+    }
+
     func testAutomaticUpdatePreferenceRoundTrips() {
         let originalValue = ShellXPreferences.automaticUpdatesEnabled
         defer {
@@ -490,6 +507,21 @@ final class AppViewModelTests: XCTestCase {
         XCTAssertEqual(progress?.completedFiles, 0)
     }
 
+    func testZModemProgressParserExtractsLrzszByteProgress() {
+        var parser = ZModemProgressParser(direction: .uploadToRemote)
+
+        _ = parser.consume(Data("Sending demo.iso, 1024 blocks:\r".utf8))
+        let progress = parser.consume(
+            Data("Bytes Sent:   524288/ 1048576   BPS:262144   ETA 00:02  \r".utf8)
+        )
+
+        XCTAssertEqual(progress?.currentFileName, "demo.iso")
+        XCTAssertEqual(progress?.percent, 50)
+        XCTAssertEqual(progress?.byteSummary, "512KB/1.0MB")
+        XCTAssertEqual(progress?.speed, "256KB/s")
+        XCTAssertEqual(progress?.eta, "00:02")
+    }
+
     func testZModemProgressParserTracksMultipleFiles() {
         var parser = ZModemProgressParser(direction: .downloadFromRemote)
 
@@ -532,8 +564,29 @@ final class AppViewModelTests: XCTestCase {
 
         XCTAssertFalse(uploadArguments.contains("--bufsize"))
         XCTAssertFalse(downloadArguments.contains("--bufsize"))
-        XCTAssertEqual(Array(uploadArguments.suffix(2)), ["--escape", "--binary"])
-        XCTAssertEqual(downloadArguments, ["--rename", "--escape", "--binary"])
+        XCTAssertEqual(
+            uploadArguments,
+            ["--escape", "--binary", "--verbose", "--verbose", "/tmp/demo.iso"]
+        )
+        XCTAssertEqual(downloadArguments, ["--rename", "--escape", "--binary", "--verbose", "--verbose"])
+    }
+
+    func testKeyboardCancelClearsActiveZModemTransferState() {
+        let viewModel = TerminalSessionViewModel()
+        viewModel.transferState = .transferring(ZModemTransferProgress(direction: .uploadToRemote))
+
+        XCTAssertTrue(viewModel.cancelActiveTransferFromKeyboard())
+
+        XCTAssertEqual(viewModel.transferState, .failed("已取消 lrzsz 传输"))
+    }
+
+    func testKeyboardCancelClearsActiveSFTPTransferState() {
+        let viewModel = TerminalSessionViewModel()
+        viewModel.transferState = .sftpTransferring(SFTPTransferProgress(direction: .download))
+
+        XCTAssertTrue(viewModel.cancelActiveTransferFromKeyboard())
+
+        XCTAssertEqual(viewModel.transferState, .failed("已取消 SFTP 传输"))
     }
 
     func testSanitizedTransferSeedDropsPromptBeforeDownloadHandshake() {

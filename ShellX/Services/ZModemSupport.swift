@@ -304,7 +304,7 @@ struct ZModemProgressParser {
         // 不同平台/版本的 lrzsz 文案略有差异，这里只抓稳定的 sending/receiving/file/path 前缀。
         let patterns = [
             #"(?i)\b(?:sending|receiving)\s*:\s*(.+)$"#,
-            #"(?i)\b(?:sending|receiving)\s+(.+)$"#,
+            #"(?i)\b(?:sending|receiving)\s+(.+?)(?:,\s*\d+\s+blocks?:.*)?$"#,
             #"(?i)\b(?:file|path)\s*:\s*(.+)$"#
         ]
 
@@ -335,6 +335,10 @@ struct ZModemProgressParser {
     private mutating func applyMetricsIfNeeded(from line: String) -> Bool {
         var didUpdate = false
 
+        if applyLrzszByteProgressIfNeeded(from: line) {
+            didUpdate = true
+        }
+
         if let percentText = line.firstMatch(of: #"(\d{1,3})%"#),
            let percentValue = Int(percentText) {
             progress.percent = min(percentValue, 100)
@@ -362,6 +366,33 @@ struct ZModemProgressParser {
         return didUpdate
     }
 
+    private mutating func applyLrzszByteProgressIfNeeded(from line: String) -> Bool {
+        let pattern = #"(?i)\bBytes\s+(?:Sent|received)\s*:\s*(\d+)(?:\s*/\s*(\d+))?\s+BPS\s*:\s*(\d+)(?:\s+ETA\s+([0-9:]+))?"#
+        guard let match = line.matchGroups(of: pattern) else { return false }
+
+        let transferredText = match[0]
+        let totalText = match.count > 1 ? match[1] : ""
+        let bpsText = match.count > 2 ? match[2] : ""
+        let etaText = match.count > 3 ? match[3] : ""
+
+        if let transferred = Int(transferredText), !totalText.isEmpty, let total = Int(totalText), total > 0 {
+            progress.percent = min(100, max(0, Int((Double(transferred) / Double(total) * 100).rounded())))
+            progress.byteSummary = "\(Self.formattedBytes(transferred))/\(Self.formattedBytes(total))"
+        } else if let transferred = Int(transferredText) {
+            progress.byteSummary = Self.formattedBytes(transferred)
+        }
+
+        if let bps = Int(bpsText), bps > 0 {
+            progress.speed = "\(Self.formattedBytes(bps))/s"
+        }
+
+        if !etaText.isEmpty {
+            progress.eta = etaText
+        }
+
+        return true
+    }
+
     private mutating func registerFileIfNeeded(_ fileName: String) {
         guard !knownFiles.contains(fileName) else { return }
         knownFiles.append(fileName)
@@ -378,6 +409,21 @@ struct ZModemProgressParser {
                 character == "\r" || character == "\n" || character == "\t" || character.isASCII
             }
     }
+
+    private static func formattedBytes(_ bytes: Int) -> String {
+        let units = ["B", "KB", "MB", "GB", "TB"]
+        var value = Double(bytes)
+        var unitIndex = 0
+        while value >= 1024, unitIndex < units.count - 1 {
+            value /= 1024
+            unitIndex += 1
+        }
+
+        if unitIndex == 0 || value >= 10 {
+            return "\(Int(value.rounded()))\(units[unitIndex])"
+        }
+        return String(format: "%.1f%@", value, units[unitIndex])
+    }
 }
 
 extension String {
@@ -392,5 +438,27 @@ extension String {
             return nil
         }
         return String(self[valueRange])
+    }
+
+    fileprivate func matchGroups(of pattern: String) -> [String]? {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return nil
+        }
+        let range = NSRange(startIndex..<endIndex, in: self)
+        guard let match = regex.firstMatch(in: self, options: [], range: range) else {
+            return nil
+        }
+
+        var groups: [String] = []
+        for index in 1..<match.numberOfRanges {
+            let matchRange = match.range(at: index)
+            guard matchRange.location != NSNotFound,
+                  let range = Range(matchRange, in: self) else {
+                groups.append("")
+                continue
+            }
+            groups.append(String(self[range]))
+        }
+        return groups
     }
 }
