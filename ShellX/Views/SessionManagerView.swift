@@ -70,7 +70,10 @@ struct SessionManagerView: View {
             }
         }
         .frame(minWidth: 1080, minHeight: 680)
+        .background(OpaqueWindowChrome())
         .navigationTitle("ShellX")
+        .toolbarBackground(Color(nsColor: .windowBackgroundColor), for: .windowToolbar)
+        .toolbarBackground(.visible, for: .windowToolbar)
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 TextField("搜索会话名称 / 主机 / 用户", text: $appModel.searchText)
@@ -319,7 +322,7 @@ private struct TerminalTabWorkspaceView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 7)
             }
-            .background(.thinMaterial)
+            .background(Color(nsColor: .windowBackgroundColor))
 
             if !appModel.openTerminalTabs.isEmpty {
                 ZStack {
@@ -402,6 +405,28 @@ private struct TerminalTabWorkspaceView: View {
             return "复制终端到新标签"
         case .ssh:
             return "复制会话到新标签"
+        }
+    }
+}
+
+private struct OpaqueWindowChrome: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        updateWindow(for: view)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        updateWindow(for: nsView)
+    }
+
+    private func updateWindow(for view: NSView) {
+        DispatchQueue.main.async {
+            guard let window = view.window else { return }
+            // 主窗口顶部工具栏不能使用透明标题栏，否则会透出后方窗口内容。
+            window.isOpaque = true
+            window.backgroundColor = .windowBackgroundColor
+            window.titlebarAppearsTransparent = false
         }
     }
 }

@@ -132,7 +132,7 @@ struct TerminalWindowView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(.thinMaterial)
+            .background(Color(nsColor: .windowBackgroundColor))
         }
         .frame(minWidth: 860, minHeight: 520)
         .onAppear {
