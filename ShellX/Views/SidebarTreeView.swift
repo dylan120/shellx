@@ -43,6 +43,12 @@ struct SidebarTreeView: View {
             }
         }
         .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
+        .background(sidebarBackgroundColor)
+    }
+
+    private var sidebarBackgroundColor: Color {
+        Color(nsColor: .controlBackgroundColor)
     }
 }
 
