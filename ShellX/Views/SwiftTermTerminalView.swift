@@ -112,6 +112,9 @@ final class ShellXTerminalView: TerminalView {
     }
 
     func applyRuntimePreferences() {
+        // ShellX 优先保证原生文本选择：SwiftTerm 开启鼠标上报时会在输出刷新时清空选区，
+        // 并让启用鼠标协议的程序接管拖拽，导致已输出的历史文本无法稳定选中。
+        allowMouseReporting = false
         // 统一在视图层限制终端历史行数，避免高频输出会话持续推高内存占用。
         changeScrollback(ShellXPreferences.terminalScrollbackLines)
     }
