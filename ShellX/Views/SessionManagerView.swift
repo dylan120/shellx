@@ -175,6 +175,7 @@ private struct TerminalTabWorkspaceView: View {
     @EnvironmentObject private var appModel: AppViewModel
     @State private var draggedTabID: UUID?
     @State private var pendingCloseRequest: TerminalTabCloseRequest?
+    @State private var isPresentingCloseConfirmation = false
 
     let onClose: (UUID) -> Void
 
@@ -367,15 +368,27 @@ private struct TerminalTabWorkspaceView: View {
                 )
             }
         }
-        .alert(item: $pendingCloseRequest) { request in
-            Alert(
-                title: Text(request.title),
-                message: Text(request.message),
-                primaryButton: .destructive(Text("确认关闭")) {
-                    performClose(request)
-                },
-                secondaryButton: .cancel(Text("取消"))
-            )
+        .onChange(of: pendingCloseRequest) { _, request in
+            guard let request else { return }
+            presentCloseConfirmation(for: request)
+        }
+    }
+
+    @MainActor
+    private func presentCloseConfirmation(for request: TerminalTabCloseRequest) {
+        guard !isPresentingCloseConfirmation else { return }
+        isPresentingCloseConfirmation = true
+        NSApp.activate(ignoringOtherApps: true)
+
+        Task { @MainActor in
+            // 使用自管 AppKit 模态窗口，避免 SwiftUI / NSAlert 在终端实时刷新时反复重绘按钮。
+            let shouldClose = TerminalCloseConfirmationController(request: request).runModal()
+            pendingCloseRequest = nil
+            isPresentingCloseConfirmation = false
+
+            if shouldClose {
+                performClose(request)
+            }
         }
     }
 
@@ -427,6 +440,111 @@ private struct OpaqueWindowChrome: NSViewRepresentable {
             window.isOpaque = true
             window.backgroundColor = .windowBackgroundColor
             window.titlebarAppearsTransparent = false
+        }
+    }
+}
+
+private final class TerminalCloseConfirmationController: NSObject, NSWindowDelegate {
+    private let request: TerminalTabCloseRequest
+    private var panel: TerminalCloseConfirmationPanel?
+    private var shouldClose = false
+    private var didFinish = false
+
+    init(request: TerminalTabCloseRequest) {
+        self.request = request
+    }
+
+    @MainActor
+    func runModal() -> Bool {
+        let panel = TerminalCloseConfirmationPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 440, height: 172),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        self.panel = panel
+        panel.title = request.title
+        panel.isReleasedWhenClosed = false
+        panel.delegate = self
+        panel.onConfirm = { [weak self] in self?.finish(shouldClose: true) }
+        panel.onCancel = { [weak self] in self?.finish(shouldClose: false) }
+        panel.contentView = makeContentView()
+        panel.center()
+        panel.makeKeyAndOrderFront(nil)
+
+        NSApp.runModal(for: panel)
+        panel.orderOut(nil)
+        self.panel = nil
+        return shouldClose
+    }
+
+    private func makeContentView() -> NSView {
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 172))
+
+        let iconView = NSImageView(frame: NSRect(x: 24, y: 96, width: 32, height: 32))
+        iconView.image = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: nil)
+        iconView.contentTintColor = .systemYellow
+        contentView.addSubview(iconView)
+
+        let titleLabel = NSTextField(labelWithString: request.title)
+        titleLabel.frame = NSRect(x: 68, y: 112, width: 340, height: 22)
+        titleLabel.font = .boldSystemFont(ofSize: NSFont.systemFontSize)
+        contentView.addSubview(titleLabel)
+
+        let messageLabel = NSTextField(wrappingLabelWithString: request.message)
+        messageLabel.frame = NSRect(x: 68, y: 70, width: 340, height: 42)
+        messageLabel.textColor = .secondaryLabelColor
+        contentView.addSubview(messageLabel)
+
+        let confirmButton = NSButton(title: "确认关闭", target: self, action: #selector(confirm))
+        confirmButton.frame = NSRect(x: 326, y: 22, width: 90, height: 32)
+        confirmButton.bezelStyle = .rounded
+        confirmButton.hasDestructiveAction = true
+        confirmButton.toolTip = "关闭终端标签，Return"
+        contentView.addSubview(confirmButton)
+
+        let cancelButton = NSButton(title: "取消", target: self, action: #selector(cancel))
+        cancelButton.frame = NSRect(x: 230, y: 22, width: 82, height: 32)
+        cancelButton.bezelStyle = .rounded
+        cancelButton.toolTip = "取消关闭，Esc"
+        contentView.addSubview(cancelButton)
+
+        return contentView
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        finish(shouldClose: false)
+    }
+
+    @objc private func confirm() {
+        finish(shouldClose: true)
+    }
+
+    @objc private func cancel() {
+        finish(shouldClose: false)
+    }
+
+    private func finish(shouldClose: Bool) {
+        guard !didFinish else { return }
+        didFinish = true
+        self.shouldClose = shouldClose
+        NSApp.stopModal()
+        panel?.close()
+    }
+}
+
+private final class TerminalCloseConfirmationPanel: NSPanel {
+    var onConfirm: (() -> Void)?
+    var onCancel: (() -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        switch event.charactersIgnoringModifiers {
+        case "\r", "\n":
+            onConfirm?()
+        case "\u{1b}":
+            onCancel?()
+        default:
+            super.keyDown(with: event)
         }
     }
 }
