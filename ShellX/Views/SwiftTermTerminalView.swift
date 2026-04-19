@@ -10,23 +10,27 @@ struct SwiftTermTerminalView: NSViewRepresentable {
         var attachedSessionModelIdentity: ObjectIdentifier?
     }
 
+    private let leadingContentInset: CGFloat = 8
+
     func makeCoordinator() -> Coordinator {
         Coordinator()
     }
 
-    func makeNSView(context: Context) -> ShellXTerminalView {
+    func makeNSView(context: Context) -> ShellXTerminalContainerView {
         let terminalView = ShellXTerminalView(frame: .zero)
         terminalView.autoresizingMask = [.width, .height]
         terminalView.applyRuntimePreferences()
-        return terminalView
+        return ShellXTerminalContainerView(terminalView: terminalView, leadingContentInset: leadingContentInset)
     }
 
-    func updateNSView(_ nsView: ShellXTerminalView, context: Context) {
-        nsView.onSelectionChanged = { hasSelection in
+    func updateNSView(_ nsView: ShellXTerminalContainerView, context: Context) {
+        let terminalView = nsView.terminalView
+        nsView.leadingContentInset = leadingContentInset
+        terminalView.onSelectionChanged = { hasSelection in
             sessionModel.updateTextSelectionState(hasSelection)
         }
 
-        let currentViewIdentity = ObjectIdentifier(nsView)
+        let currentViewIdentity = ObjectIdentifier(terminalView)
         let currentSessionModelIdentity = ObjectIdentifier(sessionModel)
         let isSameView = context.coordinator.attachedViewIdentity == currentViewIdentity
         let isSameSessionModel = context.coordinator.attachedSessionModelIdentity == currentSessionModelIdentity
@@ -40,8 +44,43 @@ struct SwiftTermTerminalView: NSViewRepresentable {
         // 延后到 update 阶段再附着，避免终端按过大的初始行数启动，导致全屏程序首屏顶部被裁掉。
         // 当 SwiftUI 复用同一个 NSView 但切换到新的会话模型时，也需要重新附着，否则新会话收不到输出。
         DispatchQueue.main.async {
-            sessionModel.attachTerminalView(nsView)
+            sessionModel.attachTerminalView(terminalView)
         }
+    }
+}
+
+final class ShellXTerminalContainerView: NSView {
+    let terminalView: ShellXTerminalView
+
+    var leadingContentInset: CGFloat {
+        didSet {
+            needsLayout = true
+        }
+    }
+
+    init(terminalView: ShellXTerminalView, leadingContentInset: CGFloat) {
+        self.terminalView = terminalView
+        self.leadingContentInset = leadingContentInset
+        super.init(frame: .zero)
+        wantsLayer = true
+        addSubview(terminalView)
+    }
+
+    required init?(coder: NSCoder) {
+        return nil
+    }
+
+    override func layout() {
+        super.layout()
+        // 这里把缩进放进终端控件内部，避免 SwiftUI 外层 padding 在侧栏和终端页之间形成视觉粗线。
+        let leadingInset = max(0, min(leadingContentInset, bounds.width))
+        terminalView.frame = NSRect(
+            x: bounds.minX + leadingInset,
+            y: bounds.minY,
+            width: max(0, bounds.width - leadingInset),
+            height: bounds.height
+        )
+        layer?.backgroundColor = terminalView.nativeBackgroundColor.cgColor
     }
 }
 

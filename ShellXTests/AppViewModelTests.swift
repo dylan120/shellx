@@ -51,6 +51,36 @@ final class AppViewModelTests: XCTestCase {
         )
     }
 
+    func testKnownHostSubsetScanRemainsTrusted() {
+        let state = KnownHostsService.classifyTrust(
+            host: "example.com",
+            port: 22,
+            scannedLines: ["example.com ssh-ed25519 AAAA"],
+            newFingerprints: ["SHA256:ed25519"],
+            existingFingerprints: ["SHA256:ed25519", "SHA256:rsa"]
+        )
+
+        XCTAssertEqual(state, .trusted)
+    }
+
+    func testKnownHostNewFingerprintRequiresUpdatePrompt() {
+        let state = KnownHostsService.classifyTrust(
+            host: "example.com",
+            port: 22,
+            scannedLines: [
+                "example.com ssh-ed25519 AAAA",
+                "example.com ssh-rsa BBBB"
+            ],
+            newFingerprints: ["SHA256:ed25519", "SHA256:rsa-new"],
+            existingFingerprints: ["SHA256:ed25519"]
+        )
+
+        guard case .prompt(let prompt) = state else {
+            return XCTFail("新增主机指纹时应提示用户确认。")
+        }
+        XCTAssertEqual(prompt.kind, .updated)
+    }
+
     func testAppearancePreferenceRoundTripsSupportedModes() {
         let originalValue = ShellXPreferences.appearanceMode
         defer {

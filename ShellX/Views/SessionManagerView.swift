@@ -326,7 +326,7 @@ private struct TerminalTabWorkspaceView: View {
                     }
                 }
                 .padding(.horizontal, 12)
-                .padding(.vertical, 7)
+                .padding(.bottom, 7)
             }
             .background(Color(nsColor: .windowBackgroundColor))
 

@@ -40,7 +40,23 @@ actor KnownHostsService {
         let storedLines = try trustedLines(for: host, port: port)
         let existingFingerprints = try storedLines.map(fingerprint)
 
-        if storedLines.isEmpty {
+        return Self.classifyTrust(
+            host: host,
+            port: port,
+            scannedLines: scannedLines,
+            newFingerprints: newFingerprints,
+            existingFingerprints: existingFingerprints
+        )
+    }
+
+    nonisolated static func classifyTrust(
+        host: String,
+        port: Int,
+        scannedLines: [String],
+        newFingerprints: [String],
+        existingFingerprints: [String]
+    ) -> KnownHostTrustState {
+        if existingFingerprints.isEmpty {
             return .prompt(
                 KnownHostPrompt(
                     host: host,
@@ -69,7 +85,7 @@ actor KnownHostsService {
             )
         }
 
-        if existingSet != newSet {
+        if !newSet.isSubset(of: existingSet) {
             return .prompt(
                 KnownHostPrompt(
                     host: host,
