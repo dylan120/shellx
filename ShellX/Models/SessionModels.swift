@@ -1,6 +1,6 @@
 import Foundation
 
-enum SSHAuthMethod: String, Codable, CaseIterable, Identifiable {
+enum SSHAuthMethod: String, Codable, CaseIterable, Identifiable, Sendable {
     case sshAgent = "agent"
     case privateKey = "privateKey"
     case password = "password"
@@ -19,7 +19,7 @@ enum SSHAuthMethod: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-struct SessionFolder: Identifiable, Codable, Hashable {
+struct SessionFolder: Identifiable, Codable, Hashable, Sendable {
     var id: UUID
     var parentID: UUID?
     var name: String
@@ -41,7 +41,7 @@ struct SessionFolder: Identifiable, Codable, Hashable {
     }
 }
 
-struct SSHSessionProfile: Identifiable, Codable, Hashable {
+struct SSHSessionProfile: Identifiable, Codable, Hashable, Sendable {
     var id: UUID
     var folderID: UUID?
     var name: String
@@ -190,14 +190,14 @@ struct SSHSessionProfile: Identifiable, Codable, Hashable {
     }
 }
 
-struct SessionWorkspace: Codable {
+struct SessionWorkspace: Codable, Sendable {
     var folders: [SessionFolder]
     var sessions: [SSHSessionProfile]
 
     static let empty = SessionWorkspace(folders: [], sessions: [])
 }
 
-struct SessionFolderNode: Identifiable, Hashable {
+struct SessionFolderNode: Identifiable, Hashable, Sendable {
     let folder: SessionFolder
     var children: [SessionFolderNode]
 

@@ -31,6 +31,23 @@ actor AppStorageRepository {
         try data.write(to: fileURL, options: [.atomic])
     }
 
+    func loadScriptLibrary() async throws -> ScriptLibrary {
+        let fileURL = try scriptsFileURL()
+        guard fileManager.fileExists(atPath: fileURL.path) else {
+            return .empty
+        }
+
+        let data = try Data(contentsOf: fileURL)
+        return try decoder.decode(ScriptLibrary.self, from: data)
+    }
+
+    func saveScriptLibrary(_ library: ScriptLibrary) async throws {
+        let fileURL = try scriptsFileURL()
+        try ensureParentDirectory(for: fileURL)
+        let data = try encoder.encode(library)
+        try data.write(to: fileURL, options: [.atomic])
+    }
+
     private func workspaceFileURL() throws -> URL {
         let baseURL = try fileManager.url(
             for: .applicationSupportDirectory,
@@ -41,6 +58,18 @@ actor AppStorageRepository {
         return baseURL
             .appendingPathComponent("ShellX", isDirectory: true)
             .appendingPathComponent("sessions.json", isDirectory: false)
+    }
+
+    private func scriptsFileURL() throws -> URL {
+        let baseURL = try fileManager.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )
+        return baseURL
+            .appendingPathComponent("ShellX", isDirectory: true)
+            .appendingPathComponent("scripts.json", isDirectory: false)
     }
 
     private func ensureParentDirectory(for fileURL: URL) throws {

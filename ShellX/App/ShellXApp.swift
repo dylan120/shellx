@@ -46,6 +46,7 @@ enum ShellXPreferences {
     private static let appearanceModeKey = "preferences.appearance.mode"
     private static let copySelectionOnSelectKey = "preferences.mouseTrackpad.copySelectionOnSelect"
     private static let terminalScrollbackLinesKey = "preferences.terminal.scrollbackLines"
+    private static let reopenTerminalTabsAfterMainWindowCloseKey = "preferences.window.reopenTerminalTabsAfterMainWindowClose"
     private static let automaticUpdatesEnabledKey = "preferences.updates.automaticEnabled"
 
     static let didChangeNotification = Notification.Name("ShellXPreferences.didChange")
@@ -102,6 +103,15 @@ enum ShellXPreferences {
         }
     }
 
+    static var reopenTerminalTabsAfterMainWindowClose: Bool {
+        get {
+            UserDefaults.standard.object(forKey: reopenTerminalTabsAfterMainWindowCloseKey) as? Bool ?? true
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: reopenTerminalTabsAfterMainWindowCloseKey)
+        }
+    }
+
     private static func normalizedTerminalScrollbackLines(_ value: Int) -> Int {
         min(max(value, minimumTerminalScrollbackLines), maximumTerminalScrollbackLines)
     }
@@ -109,6 +119,7 @@ enum ShellXPreferences {
 
 @main
 struct ShellXApp: App {
+    @Environment(\.openWindow) private var openWindow
     @StateObject private var appModel = AppViewModel()
     @StateObject private var updateService = AppUpdateService()
     @State private var appearanceMode = ShellXPreferences.appearanceMode
@@ -159,7 +170,39 @@ struct ShellXApp: App {
                 }
                 .disabled(updateService.isBusy)
             }
+
+            CommandMenu("脚本") {
+                Button("脚本管理…") {
+                    openWindow(id: "script-manager-window")
+                }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
+
+                Button("批量执行脚本…") {
+                    openWindow(id: "script-batch-window")
+                }
+                .keyboardShortcut("b", modifiers: [.command, .shift])
+            }
         }
+
+        Window("脚本管理", id: "script-manager-window") {
+            ScriptManagerView()
+                .environmentObject(appModel)
+                .preferredColorScheme(appearanceMode.preferredColorScheme)
+                .onReceive(NotificationCenter.default.publisher(for: ShellXPreferences.didChangeNotification)) { _ in
+                    appearanceMode = ShellXPreferences.appearanceMode
+                }
+        }
+        .defaultSize(width: 920, height: 620)
+
+        Window("批量执行脚本", id: "script-batch-window") {
+            ScriptBatchExecutionView()
+                .environmentObject(appModel)
+                .preferredColorScheme(appearanceMode.preferredColorScheme)
+                .onReceive(NotificationCenter.default.publisher(for: ShellXPreferences.didChangeNotification)) { _ in
+                    appearanceMode = ShellXPreferences.appearanceMode
+                }
+        }
+        .defaultSize(width: 1060, height: 720)
 
         Settings {
             GlobalPreferencesView()
@@ -181,6 +224,7 @@ private struct GlobalPreferencesView: View {
     @State private var appearanceMode = ShellXPreferences.appearanceMode
     @State private var copySelectionOnSelect = ShellXPreferences.copySelectionOnSelect
     @State private var terminalScrollbackLines = ShellXPreferences.terminalScrollbackLines
+    @State private var reopenTerminalTabsAfterMainWindowClose = ShellXPreferences.reopenTerminalTabsAfterMainWindowClose
     @State private var automaticUpdatesEnabled = ShellXPreferences.automaticUpdatesEnabled
 
     var body: some View {
@@ -204,6 +248,30 @@ private struct GlobalPreferencesView: View {
                     .pickerStyle(.radioGroup)
 
                     Text("可在跟随系统、浅色和深色之间切换；修改后会立即作用于当前应用窗口。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            GroupBox("窗口行为") {
+                VStack(alignment: .leading, spacing: 12) {
+                    Toggle(isOn: Binding(
+                        get: { reopenTerminalTabsAfterMainWindowClose },
+                        set: { newValue in
+                            reopenTerminalTabsAfterMainWindowClose = newValue
+                            ShellXPreferences.reopenTerminalTabsAfterMainWindowClose = newValue
+                        }
+                    )) {
+                        HStack(spacing: 6) {
+                            Text("重新打开上次标签页")
+                            Image(systemName: "questionmark.circle")
+                                .foregroundStyle(.secondary)
+                                .help("关闭主窗口后再次打开时，恢复关闭前仍在顶部标签栏中的终端标签。")
+                        }
+                    }
+
+                    Text("关闭后会在主窗口重新打开时保留标签页；关闭该选项后，关闭主窗口会同时结束当前终端连接，下次打开只进入默认状态。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -331,7 +399,7 @@ private struct GlobalPreferencesView: View {
             Spacer()
         }
         .padding(24)
-        .frame(width: 520, height: 590)
+        .frame(width: 520, height: 700)
     }
 
     private func statusColor(for phase: AppUpdatePhase) -> Color {

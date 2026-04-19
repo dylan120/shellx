@@ -26,6 +26,10 @@
 		100000000000000000000029 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000002A /* Assets.xcassets */; };
 		1000000000000000000000B2 /* SFTPTransferService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000000B3 /* SFTPTransferService.swift */; };
 		1000000000000000000000B4 /* AppUpdateService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000000B5 /* AppUpdateService.swift */; };
+		1000000000000000000000D1 /* ScriptModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000000D0 /* ScriptModels.swift */; };
+		1000000000000000000000D3 /* ScriptBatchExecutionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000000D2 /* ScriptBatchExecutionService.swift */; };
+		1000000000000000000000D5 /* ScriptManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000000D4 /* ScriptManagerView.swift */; };
+		1000000000000000000000D7 /* ScriptBatchExecutionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000000D6 /* ScriptBatchExecutionView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -61,6 +65,10 @@
 		1000000000000000000000B5 /* AppUpdateService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUpdateService.swift; sourceTree = "<group>"; };
 		1000000000000000000000C0 /* ShellX-Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = "ShellX-Signing.xcconfig"; sourceTree = "<group>"; };
 		1000000000000000000000C2 /* ShellX.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ShellX.entitlements; sourceTree = "<group>"; };
+		1000000000000000000000D0 /* ScriptModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScriptModels.swift; sourceTree = "<group>"; };
+		1000000000000000000000D2 /* ScriptBatchExecutionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScriptBatchExecutionService.swift; sourceTree = "<group>"; };
+		1000000000000000000000D4 /* ScriptManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScriptManagerView.swift; sourceTree = "<group>"; };
+		1000000000000000000000D6 /* ScriptBatchExecutionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScriptBatchExecutionView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -135,6 +143,7 @@
 			isa = PBXGroup;
 			children = (
 				100000000000000000000002 /* SessionModels.swift */,
+				1000000000000000000000D0 /* ScriptModels.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -163,6 +172,7 @@
 				10000000000000000000000F /* KnownHostsService.swift */,
 				1000000000000000000000B3 /* SFTPTransferService.swift */,
 				100000000000000000000010 /* SessionPasswordStore.swift */,
+				1000000000000000000000D2 /* ScriptBatchExecutionService.swift */,
 				10000000000000000000000D /* SSHPTYTransport.swift */,
 				10000000000000000000000E /* ZModemSupport.swift */,
 			);
@@ -173,6 +183,8 @@
 			isa = PBXGroup;
 			children = (
 				100000000000000000000006 /* SidebarTreeView.swift */,
+				1000000000000000000000D6 /* ScriptBatchExecutionView.swift */,
+				1000000000000000000000D4 /* ScriptManagerView.swift */,
 				100000000000000000000007 /* SessionEditorSheet.swift */,
 				100000000000000000000008 /* SessionManagerView.swift */,
 				10000000000000000000000C /* SwiftTermTerminalView.swift */,
@@ -298,13 +310,17 @@
 			files = (
 				100000000000000000000011 /* ShellXApp.swift in Sources */,
 				100000000000000000000012 /* SessionModels.swift in Sources */,
+				1000000000000000000000D1 /* ScriptModels.swift in Sources */,
 				100000000000000000000013 /* AppStorageRepository.swift in Sources */,
 				100000000000000000000014 /* AppViewModel.swift in Sources */,
 				100000000000000000000016 /* SidebarTreeView.swift in Sources */,
 				100000000000000000000017 /* SessionEditorSheet.swift in Sources */,
 				100000000000000000000018 /* SessionManagerView.swift in Sources */,
+				1000000000000000000000D5 /* ScriptManagerView.swift in Sources */,
+				1000000000000000000000D7 /* ScriptBatchExecutionView.swift in Sources */,
 				100000000000000000000027 /* KnownHostsService.swift in Sources */,
 				100000000000000000000028 /* SessionPasswordStore.swift in Sources */,
+				1000000000000000000000D3 /* ScriptBatchExecutionService.swift in Sources */,
 				1000000000000000000000B2 /* SFTPTransferService.swift in Sources */,
 				1000000000000000000000B4 /* AppUpdateService.swift in Sources */,
 				100000000000000000000025 /* SSHPTYTransport.swift in Sources */,
@@ -360,7 +376,7 @@
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				MARKETING_VERSION = 0.1.9;
+				MARKETING_VERSION = 0.2.0;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Config/ShellX.entitlements;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -388,7 +404,7 @@
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				MARKETING_VERSION = 0.1.9;
+				MARKETING_VERSION = 0.2.0;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Config/ShellX.entitlements;
 				GENERATE_INFOPLIST_FILE = YES;

@@ -71,6 +71,11 @@ struct SessionManagerView: View {
         }
         .frame(minWidth: 1080, minHeight: 680)
         .background(OpaqueWindowChrome())
+        .background(
+            MainWindowCloseObserver {
+                appModel.handleMainWindowClosed()
+            }
+        )
         .navigationTitle("ShellX")
         .toolbarBackground(Color(nsColor: .windowBackgroundColor), for: .windowToolbar)
         .toolbarBackground(.visible, for: .windowToolbar)
@@ -444,6 +449,68 @@ private struct OpaqueWindowChrome: NSViewRepresentable {
     }
 }
 
+private struct MainWindowCloseObserver: NSViewRepresentable {
+    let onClose: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onClose: onClose)
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        attachObserver(from: view, coordinator: context.coordinator)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.onClose = onClose
+        attachObserver(from: nsView, coordinator: context.coordinator)
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.detach()
+    }
+
+    private func attachObserver(from view: NSView, coordinator: Coordinator) {
+        DispatchQueue.main.async {
+            guard let window = view.window else { return }
+            coordinator.attach(to: window)
+        }
+    }
+
+    final class Coordinator {
+        var onClose: () -> Void
+        private weak var observedWindow: NSWindow?
+        private var observer: NSObjectProtocol?
+
+        init(onClose: @escaping () -> Void) {
+            self.onClose = onClose
+        }
+
+        func attach(to window: NSWindow) {
+            guard observedWindow !== window else { return }
+            detach()
+            observedWindow = window
+            // 只监听当前主窗口的关闭通知，避免普通视图重建时误触发标签生命周期处理。
+            observer = NotificationCenter.default.addObserver(
+                forName: NSWindow.willCloseNotification,
+                object: window,
+                queue: .main
+            ) { [weak self] _ in
+                self?.onClose()
+            }
+        }
+
+        func detach() {
+            if let observer {
+                NotificationCenter.default.removeObserver(observer)
+            }
+            observer = nil
+            observedWindow = nil
+        }
+    }
+}
+
 private final class TerminalCloseConfirmationController: NSObject, NSWindowDelegate {
     private let request: TerminalTabCloseRequest
     private var panel: TerminalCloseConfirmationPanel?
@@ -469,6 +536,7 @@ private final class TerminalCloseConfirmationController: NSObject, NSWindowDeleg
         panel.onConfirm = { [weak self] in self?.finish(shouldClose: true) }
         panel.onCancel = { [weak self] in self?.finish(shouldClose: false) }
         panel.contentView = makeContentView()
+        panel.initialFirstResponder = panel.cancelButton
         panel.center()
         panel.makeKeyAndOrderFront(nil)
 
@@ -500,13 +568,14 @@ private final class TerminalCloseConfirmationController: NSObject, NSWindowDeleg
         confirmButton.frame = NSRect(x: 326, y: 22, width: 90, height: 32)
         confirmButton.bezelStyle = .rounded
         confirmButton.hasDestructiveAction = true
-        confirmButton.toolTip = "关闭终端标签，Return"
+        confirmButton.toolTip = "确认关闭当前终端标签"
         contentView.addSubview(confirmButton)
 
         let cancelButton = NSButton(title: "取消", target: self, action: #selector(cancel))
         cancelButton.frame = NSRect(x: 230, y: 22, width: 82, height: 32)
         cancelButton.bezelStyle = .rounded
         cancelButton.toolTip = "取消关闭，Esc"
+        panel?.cancelButton = cancelButton
         contentView.addSubview(cancelButton)
 
         return contentView
@@ -536,16 +605,26 @@ private final class TerminalCloseConfirmationController: NSObject, NSWindowDeleg
 private final class TerminalCloseConfirmationPanel: NSPanel {
     var onConfirm: (() -> Void)?
     var onCancel: (() -> Void)?
+    weak var cancelButton: NSButton?
 
     override func keyDown(with event: NSEvent) {
         switch event.charactersIgnoringModifiers {
-        case "\r", "\n":
-            onConfirm?()
+        case "\r", "\n", "\u{3}":
+            if isFocusedButton(cancelButton) {
+                onCancel?()
+            } else {
+                onConfirm?()
+            }
         case "\u{1b}":
             onCancel?()
         default:
             super.keyDown(with: event)
         }
+    }
+
+    private func isFocusedButton(_ button: NSButton?) -> Bool {
+        guard let button else { return false }
+        return firstResponder === button
     }
 }
 

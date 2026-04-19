@@ -116,6 +116,44 @@ final class AppViewModelTests: XCTestCase {
         XCTAssertFalse(ShellXPreferences.automaticUpdatesEnabled)
     }
 
+    func testUserScriptRequiresNameAndContent() {
+        XCTAssertTrue(UserScript(name: "检查磁盘", content: "df -h").isValid)
+        XCTAssertFalse(UserScript(name: "", content: "df -h").isValid)
+        XCTAssertFalse(UserScript(name: "检查磁盘", content: "   ").isValid)
+    }
+
+    func testBatchScriptPasswordSessionFailsBeforeStartingSSHProcess() async {
+        let service = ScriptBatchExecutionService()
+        let script = UserScript(name: "检查", content: "hostname")
+        let session = SSHSessionProfile(
+            name: "password-session",
+            host: "example.com",
+            username: "ops",
+            authMethod: .password
+        )
+
+        let result = await service.execute(script: script, session: session)
+
+        if case .failed(let message) = result.status {
+            XCTAssertTrue(message.contains("暂不支持账号密码认证"))
+        } else {
+            XCTFail("账号密码认证会话不应进入批量 SSH 执行")
+        }
+    }
+
+    func testReopenTerminalTabsAfterMainWindowClosePreferenceRoundTrips() {
+        let originalValue = ShellXPreferences.reopenTerminalTabsAfterMainWindowClose
+        defer {
+            ShellXPreferences.reopenTerminalTabsAfterMainWindowClose = originalValue
+        }
+
+        ShellXPreferences.reopenTerminalTabsAfterMainWindowClose = true
+        XCTAssertTrue(ShellXPreferences.reopenTerminalTabsAfterMainWindowClose)
+
+        ShellXPreferences.reopenTerminalTabsAfterMainWindowClose = false
+        XCTAssertFalse(ShellXPreferences.reopenTerminalTabsAfterMainWindowClose)
+    }
+
     func testUpdateVersionComparisonHandlesTagsAndDifferentComponentCounts() {
         XCTAssertEqual(AppUpdateService.compareVersions("v1.2.1", "1.2.0"), .orderedDescending)
         XCTAssertEqual(AppUpdateService.compareVersions("1.2", "1.2.0"), .orderedSame)
@@ -127,8 +165,8 @@ final class AppViewModelTests: XCTestCase {
 
         viewModel.openLocalTerminal()
 
-        XCTAssertEqual(viewModel.openTerminalSessionIDs, [AppViewModel.localTerminalID])
-        XCTAssertEqual(viewModel.activeTerminalSessionID, AppViewModel.localTerminalID)
+        XCTAssertEqual(viewModel.openTerminalTabs.map(\.id), [AppViewModel.localTerminalID])
+        XCTAssertEqual(viewModel.activeTerminalTabID, AppViewModel.localTerminalID)
         XCTAssertEqual(viewModel.openTerminalTabs.first?.title, "本机终端")
         XCTAssertEqual(
             viewModel.openTerminalTabs.first?.kind,
@@ -392,16 +430,19 @@ final class AppViewModelTests: XCTestCase {
         viewModel.openTerminal(sessionID: first.id)
         viewModel.openTerminal(sessionID: second.id)
 
-        XCTAssertEqual(viewModel.openTerminalSessionIDs, [first.id, second.id])
-        XCTAssertEqual(viewModel.activeTerminalSessionID, second.id)
+        XCTAssertEqual(viewModel.openTerminalTabs.count, 2)
+        XCTAssertEqual(viewModel.openTerminalTabs.map(\.title), ["first", "second"])
+        XCTAssertEqual(viewModel.openTerminalTabs.last?.id, viewModel.activeTerminalTabID)
 
-        viewModel.closeTerminal(sessionID: second.id)
+        let secondTabID = viewModel.openTerminalTabs.last!.id
+        viewModel.closeTerminal(tabID: secondTabID)
 
-        XCTAssertEqual(viewModel.openTerminalSessionIDs, [first.id])
-        XCTAssertEqual(viewModel.activeTerminalSessionID, first.id)
+        XCTAssertEqual(viewModel.openTerminalTabs.count, 1)
+        XCTAssertEqual(viewModel.openTerminalTabs.first?.title, "first")
+        XCTAssertEqual(viewModel.openTerminalTabs.first?.id, viewModel.activeTerminalTabID)
     }
 
-    func testOpenTerminalReusesExistingTabAndActivatesSelection() {
+    func testOpenTerminalCreatesIndependentTabsAndActivatesSelection() {
         let viewModel = AppViewModel(repository: AppStorageRepository())
         let session = SSHSessionProfile(name: "prod", host: "example.com", username: "ops")
         viewModel.sessions = [session]
@@ -409,9 +450,73 @@ final class AppViewModelTests: XCTestCase {
         viewModel.openTerminal(sessionID: session.id)
         viewModel.openTerminal(sessionID: session.id)
 
-        XCTAssertEqual(viewModel.openTerminalSessionIDs, [session.id])
-        XCTAssertEqual(viewModel.activeTerminalSessionID, session.id)
+        XCTAssertEqual(viewModel.openTerminalTabs.count, 2)
+        XCTAssertEqual(viewModel.openTerminalTabs.map(\.title), ["prod", "prod"])
+        XCTAssertEqual(viewModel.openTerminalTabs.last?.id, viewModel.activeTerminalTabID)
         XCTAssertEqual(viewModel.selectedSessionID, session.id)
+    }
+
+    func testMainWindowCloseKeepsTerminalTabsWhenPreferenceIsEnabled() {
+        let originalValue = ShellXPreferences.reopenTerminalTabsAfterMainWindowClose
+        defer {
+            ShellXPreferences.reopenTerminalTabsAfterMainWindowClose = originalValue
+        }
+
+        ShellXPreferences.reopenTerminalTabsAfterMainWindowClose = true
+        let viewModel = AppViewModel(repository: AppStorageRepository())
+        viewModel.openLocalTerminal()
+
+        viewModel.handleMainWindowClosed()
+
+        XCTAssertEqual(viewModel.openTerminalTabs.count, 1)
+        XCTAssertEqual(viewModel.activeTerminalTabID, AppViewModel.localTerminalID)
+    }
+
+    func testLoadRestoresTabsSavedWhenMainWindowClosed() async {
+        let originalValue = ShellXPreferences.reopenTerminalTabsAfterMainWindowClose
+        let suiteName = "ShellXTests.TabRestoration.\(UUID().uuidString)"
+        let snapshotStore = UserDefaults(suiteName: suiteName)!
+        defer {
+            ShellXPreferences.reopenTerminalTabsAfterMainWindowClose = originalValue
+            snapshotStore.removePersistentDomain(forName: suiteName)
+        }
+
+        ShellXPreferences.reopenTerminalTabsAfterMainWindowClose = true
+        let sourceViewModel = AppViewModel(
+            repository: AppStorageRepository(),
+            terminalTabsSnapshotStore: snapshotStore
+        )
+        sourceViewModel.openLocalTerminal()
+        sourceViewModel.duplicateTerminal(tabID: AppViewModel.localTerminalID)
+        let activeTabID = sourceViewModel.activeTerminalTabID
+
+        sourceViewModel.handleMainWindowClosed()
+
+        let restoredViewModel = AppViewModel(
+            repository: AppStorageRepository(),
+            terminalTabsSnapshotStore: snapshotStore
+        )
+        await restoredViewModel.load()
+
+        XCTAssertEqual(restoredViewModel.openTerminalTabs.count, 2)
+        XCTAssertEqual(restoredViewModel.activeTerminalTabID, activeTabID)
+        XCTAssertEqual(restoredViewModel.openTerminalTabs.map(\.title), ["本机终端", "本机终端"])
+    }
+
+    func testMainWindowCloseClearsTerminalTabsWhenPreferenceIsDisabled() {
+        let originalValue = ShellXPreferences.reopenTerminalTabsAfterMainWindowClose
+        defer {
+            ShellXPreferences.reopenTerminalTabsAfterMainWindowClose = originalValue
+        }
+
+        ShellXPreferences.reopenTerminalTabsAfterMainWindowClose = false
+        let viewModel = AppViewModel(repository: AppStorageRepository())
+        viewModel.openLocalTerminal()
+
+        viewModel.handleMainWindowClosed()
+
+        XCTAssertTrue(viewModel.openTerminalTabs.isEmpty)
+        XCTAssertNil(viewModel.activeTerminalTabID)
     }
 
     func testZModemTriggerDetectorRecognizesUploadPrompt() {

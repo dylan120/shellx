@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-enum LocalShellLaunchMode: Equatable {
+enum LocalShellLaunchMode: String, Codable, Equatable, Sendable {
     case login
     case interactive
 
@@ -15,8 +15,8 @@ enum LocalShellLaunchMode: Equatable {
     }
 }
 
-struct TerminalTabItem: Identifiable, Equatable {
-    enum Kind: Equatable {
+struct TerminalTabItem: Identifiable, Equatable, Sendable {
+    enum Kind: Equatable, Sendable {
         case local(shellPath: String, launchMode: LocalShellLaunchMode)
         case ssh(SSHSessionProfile)
     }
@@ -36,15 +36,69 @@ private struct TerminalTabState: Identifiable, Equatable {
     let kind: Kind
 }
 
+// 主窗口关闭时只保存可重新打开标签所需的最小状态；终端进程和输出缓冲不会写入快照。
+private struct TerminalTabRestorationSnapshot: Codable, Equatable {
+    var tabs: [RestorableTerminalTab]
+    var activeTerminalTabID: UUID?
+}
+
+private struct RestorableTerminalTab: Codable, Equatable {
+    enum Kind: String, Codable {
+        case local
+        case ssh
+    }
+
+    var id: UUID
+    var kind: Kind
+    var shellPath: String?
+    var launchMode: LocalShellLaunchMode?
+    var sessionID: UUID?
+
+    init(tab: TerminalTabState) {
+        id = tab.id
+        switch tab.kind {
+        case .local(let shellPath, let launchMode):
+            kind = .local
+            self.shellPath = shellPath
+            self.launchMode = launchMode
+            sessionID = nil
+        case .ssh(let sessionID):
+            kind = .ssh
+            self.sessionID = sessionID
+            shellPath = nil
+            launchMode = nil
+        }
+    }
+
+    func terminalTabState(existingSessionIDs: Set<UUID>) -> TerminalTabState? {
+        switch kind {
+        case .local:
+            return TerminalTabState(
+                id: id,
+                kind: .local(
+                    shellPath: shellPath ?? AppViewModel.defaultLocalShellPath,
+                    launchMode: launchMode ?? .interactive
+                )
+            )
+        case .ssh:
+            guard let sessionID, existingSessionIDs.contains(sessionID) else { return nil }
+            return TerminalTabState(id: id, kind: .ssh(sessionID: sessionID))
+        }
+    }
+}
+
 @MainActor
 final class AppViewModel: ObservableObject {
     static let localTerminalID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
     static let defaultLocalShellPath = "/bin/zsh"
+    private static let terminalTabsRestorationSnapshotKey = "window.terminalTabsRestorationSnapshot.v1"
 
     @Published var folders: [SessionFolder] = []
     @Published var sessions: [SSHSessionProfile] = []
     @Published var selectedFolderID: UUID?
     @Published var selectedSessionID: UUID?
+    @Published var scripts: [UserScript] = []
+    @Published var selectedScriptID: UUID?
     @Published private var terminalTabs: [TerminalTabState] = []
     @Published var activeTerminalTabID: UUID?
     @Published var searchText = ""
@@ -53,14 +107,17 @@ final class AppViewModel: ObservableObject {
 
     private let repository: AppStorageRepository
     private let passwordStore: SessionPasswordStore
+    private let terminalTabsSnapshotStore: UserDefaults
     private var terminalSessionModels: [UUID: TerminalSessionViewModel] = [:]
 
     init(
         repository: AppStorageRepository = AppStorageRepository(),
-        passwordStore: SessionPasswordStore = SessionPasswordStore()
+        passwordStore: SessionPasswordStore = SessionPasswordStore(),
+        terminalTabsSnapshotStore: UserDefaults = .standard
     ) {
         self.repository = repository
         self.passwordStore = passwordStore
+        self.terminalTabsSnapshotStore = terminalTabsSnapshotStore
     }
 
     func load() async {
@@ -68,8 +125,13 @@ final class AppViewModel: ObservableObject {
             let workspace = try await repository.loadWorkspace()
             folders = workspace.folders.sorted(by: folderSort)
             sessions = workspace.sessions.sorted(by: sessionSort)
+            let library = try await repository.loadScriptLibrary()
+            scripts = library.scripts.sorted(by: scriptSort)
             if selectedSessionID == nil {
                 selectedSessionID = filteredSessions.first?.id
+            }
+            if selectedScriptID == nil {
+                selectedScriptID = scripts.first?.id
             }
             expandedFolderIDs.formUnion(folders.compactMap(\.parentID))
         } catch {
@@ -77,7 +139,10 @@ final class AppViewModel: ObservableObject {
         }
 
         if terminalTabs.isEmpty {
-            openLocalTerminal()
+            restoreTerminalTabsFromSnapshotIfNeeded()
+            if terminalTabs.isEmpty {
+                openLocalTerminal()
+            }
         }
     }
 
@@ -94,9 +159,27 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    func persistScripts() {
+        let library = ScriptLibrary(scripts: scripts)
+        Task {
+            do {
+                try await repository.saveScriptLibrary(library)
+            } catch {
+                await MainActor.run {
+                    self.errorMessage = "保存脚本配置失败：\(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
     var selectedSession: SSHSessionProfile? {
         guard let selectedSessionID else { return nil }
         return filteredSessions.first(where: { $0.id == selectedSessionID })
+    }
+
+    var selectedScript: UserScript? {
+        guard let selectedScriptID else { return nil }
+        return scripts.first(where: { $0.id == selectedScriptID })
     }
 
     var filteredSessions: [SSHSessionProfile] {
@@ -270,6 +353,27 @@ final class AppViewModel: ObservableObject {
         persist()
     }
 
+    func saveScript(_ draft: UserScript) {
+        var script = draft
+        script.updatedAt = .now
+        if let index = scripts.firstIndex(where: { $0.id == script.id }) {
+            scripts[index] = script
+        } else {
+            scripts.append(script)
+            selectedScriptID = script.id
+        }
+        scripts.sort(by: scriptSort)
+        persistScripts()
+    }
+
+    func deleteScript(_ script: UserScript) {
+        scripts.removeAll { $0.id == script.id }
+        if selectedScriptID == script.id {
+            selectedScriptID = scripts.first?.id
+        }
+        persistScripts()
+    }
+
     func duplicateSession(_ session: SSHSessionProfile) {
         var duplicated = session
         duplicated.id = UUID()
@@ -424,6 +528,54 @@ final class AppViewModel: ObservableObject {
         syncSelectionToActiveTerminalTab()
     }
 
+    func handleMainWindowClosed() {
+        guard ShellXPreferences.reopenTerminalTabsAfterMainWindowClose else {
+            clearTerminalTabsRestorationSnapshot()
+            closeAllTerminals()
+            return
+        }
+        saveTerminalTabsRestorationSnapshot()
+    }
+
+    private func restoreTerminalTabsFromSnapshotIfNeeded() {
+        guard ShellXPreferences.reopenTerminalTabsAfterMainWindowClose,
+              let data = terminalTabsSnapshotStore.data(forKey: Self.terminalTabsRestorationSnapshotKey),
+              let snapshot = try? JSONDecoder().decode(TerminalTabRestorationSnapshot.self, from: data) else {
+            return
+        }
+
+        let existingSessionIDs = Set(sessions.map(\.id))
+        terminalTabs = snapshot.tabs.compactMap { tab in
+            tab.terminalTabState(existingSessionIDs: existingSessionIDs)
+        }
+        if let activeTerminalTabID = snapshot.activeTerminalTabID,
+           terminalTabs.contains(where: { $0.id == activeTerminalTabID }) {
+            self.activeTerminalTabID = activeTerminalTabID
+        } else {
+            activeTerminalTabID = terminalTabs.last?.id
+        }
+        syncSelectionToActiveTerminalTab()
+        clearTerminalTabsRestorationSnapshot()
+    }
+
+    private func saveTerminalTabsRestorationSnapshot() {
+        guard !terminalTabs.isEmpty else {
+            clearTerminalTabsRestorationSnapshot()
+            return
+        }
+
+        let snapshot = TerminalTabRestorationSnapshot(
+            tabs: terminalTabs.map(RestorableTerminalTab.init(tab:)),
+            activeTerminalTabID: activeTerminalTabID
+        )
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        terminalTabsSnapshotStore.set(data, forKey: Self.terminalTabsRestorationSnapshotKey)
+    }
+
+    private func clearTerminalTabsRestorationSnapshot() {
+        terminalTabsSnapshotStore.removeObject(forKey: Self.terminalTabsRestorationSnapshotKey)
+    }
+
     func activateTerminal(tabID: UUID) {
         guard terminalTabs.contains(where: { $0.id == tabID }) else { return }
         activeTerminalTabID = tabID
@@ -538,6 +690,10 @@ final class AppViewModel: ObservableObject {
     }
 
     private func sessionSort(lhs: SSHSessionProfile, rhs: SSHSessionProfile) -> Bool {
+        lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+    }
+
+    private func scriptSort(lhs: UserScript, rhs: UserScript) -> Bool {
         lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
     }
 }
