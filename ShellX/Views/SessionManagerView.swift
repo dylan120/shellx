@@ -202,7 +202,7 @@ private struct TerminalTabWorkspaceView: View {
                                 Image(systemName: "terminal")
                                     .font(.caption)
                                 Text(tab.title)
-                                    .font(.caption.weight(isActive ? .semibold : .regular))
+                                    .font(.callout.weight(isActive ? .semibold : .regular))
                                     .lineLimit(1)
                                 Button {
                                     pendingCloseRequest = .single(tab.id)
@@ -212,7 +212,7 @@ private struct TerminalTabWorkspaceView: View {
                                         .symbolRenderingMode(.hierarchical)
                                 }
                                 .buttonStyle(.plain)
-                                .foregroundStyle(isActive ? Color.white.opacity(0.85) : Color.secondary)
+                                .foregroundStyle(Color.secondary)
                                 .accessibilityLabel("关闭终端标签")
                                 .help("关闭终端标签")
                             }
@@ -220,14 +220,14 @@ private struct TerminalTabWorkspaceView: View {
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
                         .contentShape(Rectangle())
-                        .background(tabBackground(for: tab.id), in: Capsule())
-                        .overlay {
+                        .overlay(alignment: .top) {
                             if isActive {
-                                Capsule()
-                                    .strokeBorder(Color.accentColor.opacity(0.35), lineWidth: 1)
+                                Rectangle()
+                                    .fill(Color.accentColor)
+                                    .frame(height: 2)
                             }
                         }
-                        .foregroundStyle(isActive ? Color.white : Color.primary)
+                        .foregroundStyle(Color.primary)
                         .onTapGesture {
                             appModel.activateTerminal(tabID: tab.id)
                         }
@@ -408,13 +408,6 @@ private struct TerminalTabWorkspaceView: View {
         case .all:
             appModel.closeAllTerminals()
         }
-    }
-
-    private func tabBackground(for sessionID: UUID) -> some ShapeStyle {
-        if sessionID == appModel.activeTerminalTabID {
-            return AnyShapeStyle(Color.accentColor)
-        }
-        return AnyShapeStyle(Color.clear)
     }
 
     private func tabCopyMenuTitle(for tab: TerminalTabItem) -> String {

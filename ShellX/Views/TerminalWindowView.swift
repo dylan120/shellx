@@ -44,6 +44,7 @@ struct TerminalWindowView: View {
             ZStack(alignment: .bottomLeading) {
                 SwiftTermTerminalView(sessionModel: sessionModel)
                     .background(Color(nsColor: .textBackgroundColor))
+                    .padding(.leading, 8)
                     .contextMenu {
                         Button("复制") {
                             sessionModel.copySelectedText()
@@ -66,6 +67,7 @@ struct TerminalWindowView: View {
                         .padding(12)
                 }
             }
+            .background(Color(nsColor: .textBackgroundColor))
 
             HStack(spacing: 12) {
                 Label(sessionModel.terminalTitle, systemImage: "terminal")
