@@ -4,6 +4,34 @@ import AppKit
 
 @MainActor
 final class AppViewModelTests: XCTestCase {
+    func testScriptDecodingDefaultsMissingLanguageToShell() throws {
+        let json = """
+        {
+          "id": "00000000-0000-0000-0000-000000000001",
+          "name": "旧脚本",
+          "content": "echo ok",
+          "createdAt": "2026-04-20T00:00:00Z",
+          "updatedAt": "2026-04-20T00:00:00Z"
+        }
+        """
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let script = try decoder.decode(UserScript.self, from: Data(json.utf8))
+
+        XCTAssertEqual(script.language, .shell)
+    }
+
+    func testScriptLanguageRoundTripKeepsPython() throws {
+        let script = UserScript(name: "Python 脚本", content: "print('ok')", language: .python)
+        let encoder = JSONEncoder()
+        let data = try encoder.encode(script)
+
+        let decoded = try JSONDecoder().decode(UserScript.self, from: data)
+
+        XCTAssertEqual(decoded.language, .python)
+    }
+
     func testControlCNormalizesToInterruptByte() {
         XCTAssertEqual(
             TerminalKeyInputNormalizer.controlSequence(

@@ -4,6 +4,7 @@ struct UserScript: Identifiable, Codable, Hashable, Sendable {
     var id: UUID
     var name: String
     var content: String
+    var language: ScriptLanguage
     var createdAt: Date
     var updatedAt: Date
 
@@ -11,19 +12,56 @@ struct UserScript: Identifiable, Codable, Hashable, Sendable {
         id: UUID = UUID(),
         name: String = "",
         content: String = "",
+        language: ScriptLanguage = .shell,
         createdAt: Date = .now,
         updatedAt: Date = .now
     ) {
         self.id = id
         self.name = name
         self.content = content
+        self.language = language
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case content
+        case language
+        case createdAt
+        case updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        content = try container.decode(String.self, forKey: .content)
+        language = try container.decodeIfPresent(ScriptLanguage.self, forKey: .language) ?? .shell
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
     }
 
     var isValid: Bool {
         !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
             !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
+enum ScriptLanguage: String, Codable, CaseIterable, Hashable, Sendable, Identifiable {
+    case shell
+    case python
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .shell:
+            return "Shell"
+        case .python:
+            return "Python"
+        }
     }
 }
 
