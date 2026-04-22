@@ -326,8 +326,10 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
     static func sshArguments(
         for session: SSHSessionProfile,
         userKnownHostsPath: String,
-        strictHostKeyChecking: String = "no"
+        strictHostKeyChecking: String = "no",
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> [String] {
+        let forwardedLocaleArguments = forwardedLocaleSSHArguments(environment: environment)
         var args = [
             "-tt",
             "-p", "\(session.port)",
@@ -336,6 +338,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
             "-o", "StrictHostKeyChecking=\(strictHostKeyChecking)",
             "-o", "UpdateHostKeys=no"
         ]
+        args.append(contentsOf: forwardedLocaleArguments)
         if session.authMethod == .privateKey {
             let privateKeyPath = session.privateKeyPath.trimmingCharacters(in: .whitespacesAndNewlines)
             if !privateKeyPath.isEmpty {
@@ -357,6 +360,28 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
             args.append(session.startupCommand)
         }
         return args
+    }
+
+    private static func forwardedLocaleSSHArguments(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> [String] {
+        func sanitizedLocaleValue(for key: String) -> String? {
+            guard let rawValue = environment[key] else { return nil }
+            let trimmedValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedValue.isEmpty else { return nil }
+            // `ssh -o SetEnv=...` 使用逗号分隔多个键值；去掉分隔符和引号，避免值被截断或注入额外选项。
+            return trimmedValue
+                .replacingOccurrences(of: "\"", with: "")
+                .replacingOccurrences(of: ",", with: "")
+        }
+
+        let preferredLANG = sanitizedLocaleValue(for: "LANG") ?? "en_US.UTF-8"
+        let preferredLCTYPE = sanitizedLocaleValue(for: "LC_CTYPE") ?? "UTF-8"
+
+        return [
+            "-o", "SendEnv=LANG LC_*",
+            "-o", "SetEnv=LANG=\(preferredLANG),LC_CTYPE=\(preferredLCTYPE)"
+        ]
     }
 
     func transportDidReceive(_ data: Data) {

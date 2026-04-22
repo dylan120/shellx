@@ -176,6 +176,24 @@ final class AppViewModelTests: XCTestCase {
         XCTAssertEqual(clampedWindowSize.rows, Int(UInt16.max))
     }
 
+    func testSSHArgumentsIncludeLocaleForwardingOptions() {
+        let session = SSHSessionProfile(
+            name: "utf8-test",
+            host: "example.com",
+            username: "ops",
+            authMethod: .privateKey
+        )
+
+        let arguments = TerminalSessionViewModel.sshArguments(
+            for: session,
+            userKnownHostsPath: "/tmp/known_hosts",
+            environment: [:]
+        )
+
+        XCTAssertTrue(arguments.contains("SendEnv=LANG LC_*"))
+        XCTAssertTrue(arguments.contains("SetEnv=LANG=en_US.UTF-8,LC_CTYPE=UTF-8"))
+    }
+
     func testAutomaticUpdatePreferenceRoundTrips() {
         let originalValue = ShellXPreferences.automaticUpdatesEnabled
         defer {

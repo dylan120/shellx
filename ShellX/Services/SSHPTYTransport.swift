@@ -88,6 +88,7 @@ final class SSHPTYTransport {
             arguments: arguments,
             password: password,
             shellEnvironmentPath: nil,
+            localeEnvironment: Self.terminalLocaleEnvironment(),
             initialWindowSize: initialWindowSize
         )
     }
@@ -103,7 +104,7 @@ final class SSHPTYTransport {
             arguments: arguments,
             password: nil,
             shellEnvironmentPath: resolvedShellPath,
-            localeEnvironment: Self.localShellLocaleEnvironment(),
+            localeEnvironment: Self.terminalLocaleEnvironment(),
             initialWindowSize: initialWindowSize
         )
     }
@@ -206,12 +207,12 @@ final class SSHPTYTransport {
         return preferred
     }
 
-    private static func localShellLocaleEnvironment() -> [(String, String)] {
+    private static func terminalLocaleEnvironment() -> [(String, String)] {
         let inheritedEnvironment = ProcessInfo.processInfo.environment
         var localeVariables: [(String, String)] = []
 
-        // Finder 启动的图形应用经常拿不到完整 locale；本机 shell 至少要显式带上 UTF-8，
-        // 否则 `ls`、`printf` 等命令在中文路径下容易退回到 ASCII/C locale，显示成乱码。
+        // Finder 启动的图形应用经常拿不到完整 locale；本地 shell 和 ssh 客户端都要显式带上 UTF-8，
+        // 否则本机命令、以及依赖 LANG/LC_* 转发的远端 shell，都可能退回到 ASCII/C locale。
         for key in ["LANG", "LC_ALL", "LC_CTYPE"] {
             if let value = inheritedEnvironment[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
                !value.isEmpty {
