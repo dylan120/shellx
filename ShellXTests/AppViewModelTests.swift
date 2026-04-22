@@ -72,6 +72,21 @@ final class AppViewModelTests: XCTestCase {
             Data([0x02])
         )
 
+        XCTAssertEqual(
+            TerminalKeyInputNormalizer.normalizedTerminalInput(Data([0x1B] + Array("[95:45;2u".utf8))),
+            Data("_".utf8)
+        )
+
+        XCTAssertEqual(
+            TerminalKeyInputNormalizer.normalizedTerminalInput(Data([0x1B] + Array("[95:45;2:3u".utf8))),
+            Data()
+        )
+
+        XCTAssertEqual(
+            TerminalKeyInputNormalizer.normalizedTerminalInput(Data([0x1B] + Array("[233;1u".utf8))),
+            Data("é".utf8)
+        )
+
         let shiftedSequence = Data([0x1B] + Array("[99;6u".utf8))
         XCTAssertEqual(
             TerminalKeyInputNormalizer.normalizedTerminalInput(shiftedSequence),

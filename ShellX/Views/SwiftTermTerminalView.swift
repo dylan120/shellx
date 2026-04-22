@@ -442,11 +442,11 @@ enum TerminalKeyInputNormalizer {
 
         var index = bytes.startIndex
         while index < bytes.endIndex {
-            if let normalizedControlByte = normalizedCSIUControlByte(in: bytes, from: index) {
-                if let byte = normalizedControlByte.byte {
-                    result.append(byte)
+            if let normalizedCSIUInput = normalizedCSIUInput(in: bytes, from: index) {
+                if let output = normalizedCSIUInput.output {
+                    result.append(contentsOf: output)
                 }
-                index = normalizedControlByte.endIndex
+                index = normalizedCSIUInput.endIndex
                 continue
             }
 
@@ -457,10 +457,10 @@ enum TerminalKeyInputNormalizer {
         return Data(result)
     }
 
-    private static func normalizedCSIUControlByte(
+    private static func normalizedCSIUInput(
         in bytes: [UInt8],
         from startIndex: Int
-    ) -> (byte: UInt8?, endIndex: Int)? {
+    ) -> (output: [UInt8]?, endIndex: Int)? {
         guard startIndex + 4 < bytes.endIndex,
               bytes[startIndex] == ASCII.escape,
               bytes[startIndex + 1] == ASCII.leftBracket else {
@@ -468,9 +468,20 @@ enum TerminalKeyInputNormalizer {
         }
 
         var cursor = startIndex + 2
-        guard let keyCode = readDecimalInteger(in: bytes, cursor: &cursor),
-              cursor < bytes.endIndex,
-              bytes[cursor] == ASCII.semicolon else {
+        guard let keyCode = readDecimalInteger(in: bytes, cursor: &cursor) else {
+            return nil
+        }
+
+        // Kitty/CSI-u 允许在主 codepoint 后附带 alternate key codes，例如 Shift+- 输入 "_"
+        // 可能编码成 ESC [ 95:45;2u。执行侧只需要第一个 codepoint，其余 alternate code 跳过。
+        while cursor < bytes.endIndex, bytes[cursor] == ASCII.colon {
+            cursor += 1
+            guard readDecimalInteger(in: bytes, cursor: &cursor) != nil else {
+                return nil
+            }
+        }
+
+        guard cursor < bytes.endIndex, bytes[cursor] == ASCII.semicolon else {
             return nil
         }
         cursor += 1
@@ -488,18 +499,26 @@ enum TerminalKeyInputNormalizer {
             eventType = parsedEventType
         }
 
-        guard cursor < bytes.endIndex,
-              bytes[cursor] == ASCII.lowercaseU,
-              modifier == 5,
-              let controlByte = controlByte(forCSIUKeyCode: keyCode) else {
+        guard cursor < bytes.endIndex, bytes[cursor] == ASCII.lowercaseU else {
             return nil
         }
 
-        // Kitty/CSI-u 的按键释放事件不应写入 shell；按下和重复事件则还原为传统控制字节。
+        // Kitty/CSI-u 的按键释放事件不应写入 shell；按下和重复事件才还原输入。
         if eventType == 3 {
             return (nil, cursor + 1)
         }
-        return (controlByte, cursor + 1)
+
+        if modifier == 5, let controlByte = controlByte(forCSIUKeyCode: keyCode) {
+            return ([controlByte], cursor + 1)
+        }
+
+        if (modifier == 1 || modifier == 2),
+           let scalar = UnicodeScalar(keyCode),
+           !CharacterSet.controlCharacters.contains(scalar) {
+            return (Array(String(scalar).utf8), cursor + 1)
+        }
+
+        return nil
     }
 
     private static func readDecimalInteger(in bytes: [UInt8], cursor: inout Int) -> Int? {
