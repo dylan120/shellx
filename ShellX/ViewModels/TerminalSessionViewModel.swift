@@ -177,10 +177,12 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
 
     func attachTerminalView(_ terminalView: TerminalView) {
         if self.terminalView === terminalView {
+            claimTerminalView(terminalView)
             synchronizeTerminalSizeToTransport()
             flushPendingTerminalOutput(to: terminalView)
             return
         }
+        claimTerminalView(terminalView)
         self.terminalView = terminalView
         terminalView.terminalDelegate = self
         configureAppearance(for: terminalView)
@@ -196,6 +198,42 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
             self.pendingLocalShellPath = nil
             startLocalShell(shellPath: pendingLocalShellPath, launchMode: pendingLocalShellLaunchMode)
         }
+    }
+
+    func detachTerminalView(_ terminalView: TerminalView) {
+        guard self.terminalView === terminalView else { return }
+        if let shellXTerminalView = terminalView as? ShellXTerminalView,
+           shellXTerminalView.attachedSessionModel === self {
+            shellXTerminalView.attachedSessionModel = nil
+        }
+        self.terminalView = nil
+        hasTextSelection = false
+    }
+
+    func isAttached(to terminalView: TerminalView) -> Bool {
+        self.terminalView === terminalView
+    }
+
+    private func claimTerminalView(_ terminalView: TerminalView) {
+        guard let shellXTerminalView = terminalView as? ShellXTerminalView else { return }
+        if let previousOwner = shellXTerminalView.attachedSessionModel,
+           previousOwner !== self {
+            previousOwner.detachTerminalView(terminalView)
+        }
+        shellXTerminalView.attachedSessionModel = self
+    }
+
+    private func currentlyOwnedTerminalView() -> TerminalView? {
+        guard let terminalView else { return nil }
+        if let shellXTerminalView = terminalView as? ShellXTerminalView,
+           let owner = shellXTerminalView.attachedSessionModel,
+           owner !== self {
+            // SwiftUI 可能复用同一个 NSView 给另一个标签页；发现归属已转移时，
+            // 当前模型必须停止向旧视图写入，避免 PTY 输出串到其他标签页。
+            detachTerminalView(terminalView)
+            return nil
+        }
+        return terminalView
     }
 
     private func feed(_ data: Data, to terminalView: TerminalView) {
@@ -226,7 +264,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
     }
 
     func copySelectedText() {
-        guard let terminalView,
+        guard let terminalView = currentlyOwnedTerminalView(),
               terminalView.selectedRange().length > 0 else {
             return
         }
@@ -234,7 +272,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
     }
 
     func pasteClipboardText() {
-        guard let terminalView else { return }
+        guard let terminalView = currentlyOwnedTerminalView() else { return }
         terminalView.paste(self)
     }
 
@@ -254,7 +292,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
 
     func startLocalShell(shellPath: String = "/bin/zsh", launchMode: LocalShellLaunchMode = .login) {
         clearPendingTerminalOutput()
-        guard terminalView != nil else {
+        guard currentlyOwnedTerminalView() != nil else {
             pendingLocalShellPath = shellPath
             pendingLocalShellLaunchMode = launchMode
             runtimeKind = .local(shellPath: shellPath)
@@ -385,7 +423,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
     }
 
     func transportDidReceive(_ data: Data) {
-        guard let terminalView else {
+        guard let terminalView = currentlyOwnedTerminalView() else {
             bufferPendingTerminalOutput(data)
             return
         }
@@ -782,7 +820,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
 
     private func start(session: SSHSessionProfile, onConnected: @escaping (UUID) -> Void) {
         clearPendingTerminalOutput()
-        guard terminalView != nil else {
+        guard currentlyOwnedTerminalView() != nil else {
             pendingSession = session
             pendingConnectedHandler = onConnected
             connectionState = .connecting
@@ -901,7 +939,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
     }
 
     private func currentTerminalWindowSize() -> (cols: Int, rows: Int)? {
-        guard let terminalView else { return nil }
+        guard let terminalView = currentlyOwnedTerminalView() else { return nil }
         let terminal = terminalView.getTerminal()
         guard terminal.cols > 0, terminal.rows > 0 else { return nil }
         return (cols: terminal.cols, rows: terminal.rows)

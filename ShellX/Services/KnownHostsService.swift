@@ -32,7 +32,12 @@ actor KnownHostsService {
         let scannedLines = try await scanHostKeys(host: host, port: port)
         guard !scannedLines.isEmpty else {
             throw KnownHostsError.scanFailed(
-                "未获取到主机公钥，请确认目标主机可达且端口 \(port) 已开放。可先手动执行：ssh-keyscan -T 5 -t ed25519,ecdsa,rsa -p \(port) \(host)"
+                Self.scanFailureDescription(
+                    host: host,
+                    port: port,
+                    preferredAlgorithms: "ed25519,ecdsa,rsa",
+                    failureDetails: ["ssh-keyscan 未返回可用主机公钥行。"]
+                )
             )
         }
 
@@ -209,6 +214,7 @@ actor KnownHostsService {
     private func scanHostKeys(host: String, port: Int) async throws -> [String] {
         let preferredAlgorithms = "ed25519,ecdsa,rsa"
         let output: String
+        var failureDetails: [String] = []
 
         do {
             // 显式拉取常见 host key 算法，避免默认扫描结果缺少当前 ssh 实际协商到的算法。
@@ -217,14 +223,21 @@ actor KnownHostsService {
                 arguments: ["-T", "5", "-t", preferredAlgorithms, "-p", "\(port)", host]
             )
         } catch {
+            failureDetails.append("指定算法扫描失败：\(Self.scanFailureDetail(from: error))")
             do {
                 output = try await runProcess(
                     executable: "/usr/bin/ssh-keyscan",
                     arguments: ["-T", "5", "-p", "\(port)", host]
                 )
             } catch {
+                failureDetails.append("默认扫描失败：\(Self.scanFailureDetail(from: error))")
                 throw KnownHostsError.scanFailed(
-                    "无法通过 ssh-keyscan 获取 \(host):\(port) 的主机指纹。请确认网络可达、SSH 端口正确，或先手动执行：ssh-keyscan -T 5 -t \(preferredAlgorithms) -p \(port) \(host)"
+                    Self.scanFailureDescription(
+                        host: host,
+                        port: port,
+                        preferredAlgorithms: preferredAlgorithms,
+                        failureDetails: failureDetails
+                    )
                 )
             }
         }
@@ -235,6 +248,32 @@ actor KnownHostsService {
             .map(String.init)
             .filter { !$0.hasPrefix("#") && !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .filter { seen.insert($0).inserted }
+    }
+
+    nonisolated static func scanFailureDescription(
+        host: String,
+        port: Int,
+        preferredAlgorithms: String,
+        failureDetails: [String]
+    ) -> String {
+        var lines = [
+            "无法通过 ssh-keyscan 获取 \(host):\(port) 的主机指纹。",
+            "请确认目标主机在该端口运行 SSH 服务、网络可达且防火墙未在握手阶段主动断开连接。"
+        ]
+        if !failureDetails.isEmpty {
+            lines.append("底层错误：")
+            lines.append(contentsOf: failureDetails.map { "- \($0)" })
+        }
+        lines.append("可先手动执行：ssh-keyscan -T 5 -t \(preferredAlgorithms) -p \(port) \(host)")
+        return lines.joined(separator: "\n")
+    }
+
+    nonisolated private static func scanFailureDetail(from error: Error) -> String {
+        if let knownHostsError = error as? KnownHostsError,
+           case .scanFailed(let message) = knownHostsError {
+            return message
+        }
+        return error.localizedDescription
     }
 
     private func fingerprint(line: String) throws -> String {

@@ -124,6 +124,23 @@ final class AppViewModelTests: XCTestCase {
         XCTAssertEqual(prompt.kind, .updated)
     }
 
+    func testKnownHostScanFailureIncludesUnderlyingDetails() {
+        let message = KnownHostsService.scanFailureDescription(
+            host: "170.106.76.21",
+            port: 22,
+            preferredAlgorithms: "ed25519,ecdsa,rsa",
+            failureDetails: [
+                "指定算法扫描失败：170.106.76.21: Connection closed by remote host",
+                "默认扫描失败：170.106.76.21: Connection closed by remote host"
+            ]
+        )
+
+        XCTAssertTrue(message.contains("无法通过 ssh-keyscan 获取 170.106.76.21:22 的主机指纹"))
+        XCTAssertTrue(message.contains("底层错误"))
+        XCTAssertTrue(message.contains("Connection closed by remote host"))
+        XCTAssertTrue(message.contains("ssh-keyscan -T 5 -t ed25519,ecdsa,rsa -p 22 170.106.76.21"))
+    }
+
     func testAppearancePreferenceRoundTripsSupportedModes() {
         let originalValue = ShellXPreferences.appearanceMode
         defer {
@@ -545,6 +562,22 @@ final class AppViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.openTerminalTabs.map(\.title), ["prod", "prod"])
         XCTAssertEqual(viewModel.openTerminalTabs.last?.id, viewModel.activeTerminalTabID)
         XCTAssertEqual(viewModel.selectedSessionID, session.id)
+    }
+
+    func testReusedTerminalViewDetachesPreviousSessionModel() {
+        let firstModel = TerminalSessionViewModel()
+        let secondModel = TerminalSessionViewModel()
+        let terminalView = ShellXTerminalView(frame: .zero)
+
+        firstModel.attachTerminalView(terminalView)
+        XCTAssertTrue(firstModel.isAttached(to: terminalView))
+        XCTAssertTrue(terminalView.attachedSessionModel === firstModel)
+
+        secondModel.attachTerminalView(terminalView)
+
+        XCTAssertFalse(firstModel.isAttached(to: terminalView))
+        XCTAssertTrue(secondModel.isAttached(to: terminalView))
+        XCTAssertTrue(terminalView.attachedSessionModel === secondModel)
     }
 
     func testMainWindowCloseKeepsTerminalTabsWhenPreferenceIsEnabled() {

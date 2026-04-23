@@ -100,6 +100,7 @@ final class ShellXTerminalView: TerminalView {
     private var lastSelectionDragEvent: NSEvent?
     private var outsideClickMonitor: Any?
     private var preferencesObserver: Any?
+    weak var attachedSessionModel: TerminalSessionViewModel?
     var onSelectionChanged: ((Bool) -> Void)?
 
     override init(frame frameRect: NSRect) {
