@@ -249,6 +249,37 @@ final class AppViewModelTests: XCTestCase {
         }
     }
 
+    func testBatchScriptArgumentTextParsesQuotedValues() throws {
+        let arguments = try ScriptBatchExecutionService.parseArgumentText(#"prod "hello world" 'quoted value' empty\ arg"#)
+
+        XCTAssertEqual(arguments, ["prod", "hello world", "quoted value", "empty arg"])
+    }
+
+    func testBatchScriptArgumentTextRejectsUnclosedQuote() {
+        XCTAssertThrowsError(try ScriptBatchExecutionService.parseArgumentText(#"prod "hello"#)) { error in
+            XCTAssertTrue(error.localizedDescription.contains("引号未闭合"))
+        }
+    }
+
+    func testBatchScriptSSHArgumentsPassManualArgumentsToRemoteShell() {
+        let session = SSHSessionProfile(
+            name: "batch",
+            host: "example.com",
+            username: "ops",
+            authMethod: .privateKey,
+            privateKeyPath: "~/.ssh/id_ed25519"
+        )
+
+        let arguments = ScriptBatchExecutionService.sshArguments(
+            for: session,
+            userKnownHostsPath: "/tmp/shellx-known_hosts",
+            scriptArguments: ["prod", "hello world", "it's-ok", ""]
+        )
+
+        XCTAssertEqual(arguments.suffix(2).first, "ops@example.com")
+        XCTAssertEqual(arguments.last, #"sh -s -- 'prod' 'hello world' 'it'\''s-ok' ''"#)
+    }
+
     func testReopenTerminalTabsAfterMainWindowClosePreferenceRoundTrips() {
         let originalValue = ShellXPreferences.reopenTerminalTabsAfterMainWindowClose
         defer {

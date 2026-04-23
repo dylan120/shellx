@@ -7,6 +7,12 @@ final class ScriptBatchExecutionViewModel: ObservableObject {
     @Published var results: [ScriptExecutionResult] = []
     @Published var selectedResultID: UUID?
     @Published var isRunning = false
+    @Published var argumentText = "" {
+        didSet {
+            argumentValidationMessage = Self.validationMessage(for: argumentText)
+        }
+    }
+    @Published private(set) var argumentValidationMessage: String?
 
     private let maxConcurrentExecutions = 6
     private let service = ScriptBatchExecutionService()
@@ -41,6 +47,14 @@ final class ScriptBatchExecutionViewModel: ObservableObject {
 
         let targetSessions = sessions.filter { selectedSessionIDs.contains($0.id) }
         guard !targetSessions.isEmpty else { return }
+        let scriptArguments: [String]
+        do {
+            scriptArguments = try ScriptBatchExecutionService.parseArgumentText(argumentText)
+            argumentValidationMessage = nil
+        } catch {
+            argumentValidationMessage = error.localizedDescription
+            return
+        }
 
         isRunning = true
         results = targetSessions.map {
@@ -57,7 +71,11 @@ final class ScriptBatchExecutionViewModel: ObservableObject {
                     for session in chunk {
                         self.updateStatus(for: session.id, status: .running)
                         group.addTask {
-                            let outcome = await executionService.execute(script: script, session: session)
+                            let outcome = await executionService.execute(
+                                script: script,
+                                session: session,
+                                arguments: scriptArguments
+                            )
                             return SessionScriptRun(
                                 sessionID: session.id,
                                 status: outcome.status,
@@ -84,6 +102,15 @@ final class ScriptBatchExecutionViewModel: ObservableObject {
         results[index].status = status
         if let output {
             results[index].output = output
+        }
+    }
+
+    private static func validationMessage(for argumentText: String) -> String? {
+        do {
+            _ = try ScriptBatchExecutionService.parseArgumentText(argumentText)
+            return nil
+        } catch {
+            return error.localizedDescription
         }
     }
 }
@@ -133,6 +160,14 @@ struct ScriptBatchExecutionView: View {
                 .disabled(!canRun)
             }
 
+            VStack(alignment: .leading, spacing: 6) {
+                TextField("执行参数，例如：prod \"hello world\" --force", text: $runner.argumentText)
+                    .disabled(runner.isRunning)
+                Text(runner.argumentValidationMessage ?? "参数会传给远端 `sh -s --`，脚本中可通过 `$1`、`$2`、`$@` 读取。")
+                    .font(.footnote)
+                    .foregroundStyle(runner.argumentValidationMessage == nil ? .secondary : .red)
+            }
+
             HSplitView {
                 SessionScriptSelectionTree(selectedSessionIDs: $runner.selectedSessionIDs)
                     .environmentObject(appModel)
@@ -159,7 +194,8 @@ struct ScriptBatchExecutionView: View {
     private var canRun: Bool {
         runner.selectedScriptID != nil &&
             !runner.selectedSessionIDs.isEmpty &&
-            !runner.isRunning
+            !runner.isRunning &&
+            runner.argumentValidationMessage == nil
     }
 }
 

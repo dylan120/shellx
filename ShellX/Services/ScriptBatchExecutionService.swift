@@ -5,7 +5,11 @@ struct ScriptBatchExecutionService: Sendable {
     private let maxOutputBytes = 131_072
     private let processTimeoutSeconds: TimeInterval = 300
 
-    func execute(script: UserScript, session: SSHSessionProfile) async -> (status: ScriptExecutionStatus, output: String) {
+    func execute(
+        script: UserScript,
+        session: SSHSessionProfile,
+        arguments scriptArguments: [String] = []
+    ) async -> (status: ScriptExecutionStatus, output: String) {
         // 非交互批量任务不能安全处理密码提示，避免任务卡在远端认证阶段。
         guard session.authMethod != .password else {
             return (
@@ -19,7 +23,8 @@ struct ScriptBatchExecutionService: Sendable {
             return try await runSSHProcess(
                 scriptContent: script.content,
                 session: session,
-                knownHostsPath: knownHostsPath
+                knownHostsPath: knownHostsPath,
+                scriptArguments: scriptArguments
             )
         } catch {
             return (.failed(error.localizedDescription), "")
@@ -29,7 +34,8 @@ struct ScriptBatchExecutionService: Sendable {
     private func runSSHProcess(
         scriptContent: String,
         session: SSHSessionProfile,
-        knownHostsPath: String
+        knownHostsPath: String,
+        scriptArguments: [String]
     ) async throws -> (status: ScriptExecutionStatus, output: String) {
         try await withCheckedThrowingContinuation { continuation in
             let process = Process()
@@ -44,9 +50,10 @@ struct ScriptBatchExecutionService: Sendable {
             }
 
             process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
-            process.arguments = sshArguments(
+            process.arguments = Self.sshArguments(
                 for: session,
-                userKnownHostsPath: knownHostsPath
+                userKnownHostsPath: knownHostsPath,
+                scriptArguments: scriptArguments
             )
             process.standardOutput = outputPipe
             process.standardError = outputPipe
@@ -93,9 +100,10 @@ struct ScriptBatchExecutionService: Sendable {
         }
     }
 
-    private func sshArguments(
+    static func sshArguments(
         for session: SSHSessionProfile,
-        userKnownHostsPath: String
+        userKnownHostsPath: String,
+        scriptArguments: [String] = []
     ) -> [String] {
         var args = [
             "-T",
@@ -120,8 +128,95 @@ struct ScriptBatchExecutionService: Sendable {
         }
 
         args.append(session.destination)
-        args.append("sh -s")
+        args.append(remoteShellCommand(scriptArguments: scriptArguments))
         return args
+    }
+
+    static func parseArgumentText(_ text: String) throws -> [String] {
+        var arguments: [String] = []
+        var current = ""
+        var hasCurrent = false
+        var quote: Character?
+        var isEscaping = false
+
+        for character in text {
+            if isEscaping {
+                current.append(character)
+                hasCurrent = true
+                isEscaping = false
+                continue
+            }
+
+            if character == "\\" {
+                isEscaping = true
+                hasCurrent = true
+                continue
+            }
+
+            if let activeQuote = quote {
+                if character == activeQuote {
+                    quote = nil
+                } else {
+                    current.append(character)
+                    hasCurrent = true
+                }
+                continue
+            }
+
+            if character == "'" || character == "\"" {
+                quote = character
+                hasCurrent = true
+                continue
+            }
+
+            if character.isWhitespace {
+                if hasCurrent {
+                    arguments.append(current)
+                    current = ""
+                    hasCurrent = false
+                }
+                continue
+            }
+
+            current.append(character)
+            hasCurrent = true
+        }
+
+        if isEscaping {
+            throw ScriptArgumentParseError.trailingEscape
+        }
+        if let quote {
+            throw ScriptArgumentParseError.unclosedQuote(quote)
+        }
+        if hasCurrent {
+            arguments.append(current)
+        }
+
+        return arguments
+    }
+
+    static func remoteShellCommand(scriptArguments: [String]) -> String {
+        (["sh", "-s", "--"] + scriptArguments.map(shellQuote)).joined(separator: " ")
+    }
+
+    private static func shellQuote(_ argument: String) -> String {
+        guard !argument.isEmpty else { return "''" }
+        let quoted = argument.replacingOccurrences(of: "'", with: "'\\''")
+        return "'\(quoted)'"
+    }
+}
+
+enum ScriptArgumentParseError: LocalizedError, Equatable {
+    case trailingEscape
+    case unclosedQuote(Character)
+
+    var errorDescription: String? {
+        switch self {
+        case .trailingEscape:
+            return "参数不能以反斜杠结尾，请补全转义字符或删除末尾反斜杠。"
+        case .unclosedQuote(let quote):
+            return "参数中的 \(quote) 引号未闭合，请补齐后再执行。"
+        }
     }
 }
 
