@@ -30,6 +30,10 @@ actor KnownHostsService {
 
     func evaluate(host: String, port: Int) async throws -> KnownHostTrustState {
         let storedLines = try trustedLines(for: host, port: port)
+        if Self.canTrustExistingRecordWithoutPreScan(storedLines: storedLines) {
+            return .trusted
+        }
+
         let scannedLines: [String]
         do {
             scannedLines = try await scanHostKeys(host: host, port: port)
@@ -119,6 +123,10 @@ actor KnownHostsService {
     }
 
     nonisolated static func canTrustExistingRecordWhenScanFails(storedLines: [String]) -> Bool {
+        !storedLines.isEmpty
+    }
+
+    nonisolated static func canTrustExistingRecordWithoutPreScan(storedLines: [String]) -> Bool {
         !storedLines.isEmpty
     }
 

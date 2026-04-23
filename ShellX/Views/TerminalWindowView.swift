@@ -137,9 +137,13 @@ struct TerminalWindowView: View {
         }
         .frame(minWidth: 860, minHeight: 520)
         .onAppear {
-            if case .idle = sessionModel.connectionState {
+            if allowsModalPresentation, case .idle = sessionModel.connectionState {
                 connect()
             }
+        }
+        .onChange(of: allowsModalPresentation) { _, isActive in
+            guard isActive, case .idle = sessionModel.connectionState else { return }
+            connect()
         }
         // 终端标签会常驻保活；系统 sheet 只能挂在当前活动标签上，
         // 这里通过稳定的条件绑定限制弹窗宿主，避免切换标签时重建 SwiftTerm 视图导致输出缓冲丢失。

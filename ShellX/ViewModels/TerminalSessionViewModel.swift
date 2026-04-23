@@ -459,7 +459,11 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
                 showTransientBanner("SSH 会话已正常关闭")
             }
         } else {
-            let message = "\(runtimeKind?.defaultTitle ?? "终端")退出，退出码 \(exitCode)"
+            let message = Self.terminalExitFailureMessage(
+                title: runtimeKind?.defaultTitle ?? "终端",
+                exitCode: exitCode,
+                debugSnapshot: terminalDebugSnapshot
+            )
             connectionState = .failed(message)
             lastExitMessage = message
         }
@@ -549,6 +553,24 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
 
     func clearTerminalDebugSnapshot() {
         terminalDebugSnapshot = ""
+    }
+
+    static func terminalExitFailureMessage(title: String, exitCode: Int32, debugSnapshot: String) -> String {
+        let baseMessage = "\(title)退出，退出码 \(exitCode)"
+        guard let detail = terminalFailureDetail(from: debugSnapshot) else {
+            return baseMessage
+        }
+        return "\(baseMessage)\n\n最近终端输出：\n\(detail)"
+    }
+
+    private static func terminalFailureDetail(from debugSnapshot: String) -> String? {
+        let lines = debugSnapshot
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        guard !lines.isEmpty else { return nil }
+        return lines.suffix(12).joined(separator: "\n")
     }
 
     func trustCurrentHostAndContinue() {

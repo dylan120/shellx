@@ -150,6 +150,15 @@ final class AppViewModelTests: XCTestCase {
         XCTAssertFalse(KnownHostsService.canTrustExistingRecordWhenScanFails(storedLines: []))
     }
 
+    func testKnownHostExistingRecordCanSkipPreScan() {
+        XCTAssertTrue(
+            KnownHostsService.canTrustExistingRecordWithoutPreScan(
+                storedLines: ["example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample"]
+            )
+        )
+        XCTAssertFalse(KnownHostsService.canTrustExistingRecordWithoutPreScan(storedLines: []))
+    }
+
     func testTerminalContentFontPrefersMenloWhenAvailable() {
         let font = TerminalSessionViewModel.terminalContentFont(ofSize: 13)
 
@@ -157,6 +166,18 @@ final class AppViewModelTests: XCTestCase {
             XCTAssertEqual(font.fontName, "Menlo-Regular")
         }
         XCTAssertEqual(font.pointSize, 13)
+    }
+
+    func testTerminalExitFailureMessageIncludesRecentOutput() {
+        let message = TerminalSessionViewModel.terminalExitFailureMessage(
+            title: "SSH 控制台",
+            exitCode: 255,
+            debugSnapshot: "debug one\nPermission denied (publickey).\n"
+        )
+
+        XCTAssertTrue(message.contains("SSH 控制台退出，退出码 255"))
+        XCTAssertTrue(message.contains("最近终端输出"))
+        XCTAssertTrue(message.contains("Permission denied"))
     }
 
     func testAppearancePreferenceRoundTripsSupportedModes() {
