@@ -29,8 +29,21 @@ actor KnownHostsService {
     }
 
     func evaluate(host: String, port: Int) async throws -> KnownHostTrustState {
-        let scannedLines = try await scanHostKeys(host: host, port: port)
+        let storedLines = try trustedLines(for: host, port: port)
+        let scannedLines: [String]
+        do {
+            scannedLines = try await scanHostKeys(host: host, port: port)
+        } catch {
+            if Self.canTrustExistingRecordWhenScanFails(storedLines: storedLines) {
+                return .trusted
+            }
+            throw error
+        }
+
         guard !scannedLines.isEmpty else {
+            if Self.canTrustExistingRecordWhenScanFails(storedLines: storedLines) {
+                return .trusted
+            }
             throw KnownHostsError.scanFailed(
                 Self.scanFailureDescription(
                     host: host,
@@ -42,7 +55,6 @@ actor KnownHostsService {
         }
 
         let newFingerprints = try scannedLines.map(fingerprint)
-        let storedLines = try trustedLines(for: host, port: port)
         let existingFingerprints = try storedLines.map(fingerprint)
 
         return Self.classifyTrust(
@@ -104,6 +116,10 @@ actor KnownHostsService {
         }
 
         return .trusted
+    }
+
+    nonisolated static func canTrustExistingRecordWhenScanFails(storedLines: [String]) -> Bool {
+        !storedLines.isEmpty
     }
 
     func trust(_ prompt: KnownHostPrompt) async throws {

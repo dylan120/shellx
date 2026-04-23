@@ -915,7 +915,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
     }
 
     private func configureAppearance(for terminalView: TerminalView) {
-        terminalView.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        terminalView.font = Self.terminalContentFont(ofSize: 13)
         terminalView.nativeForegroundColor = NSColor(
             calibratedRed: 0.90,
             green: 0.93,
@@ -936,6 +936,12 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         terminalView.layer?.backgroundColor = terminalView.nativeBackgroundColor.cgColor
         terminalView.getTerminal().setCursorStyle(.steadyBlock)
         terminalView.autoresizingMask = [.width, .height]
+    }
+
+    static func terminalContentFont(ofSize size: CGFloat) -> NSFont {
+        // SF Mono 搭配系统中文回退字体时，CJK 字形在双列单元格里会显得间隔偏大。
+        // Menlo 的终端单元格指标与中文回退字体更接近，能减轻中文连续文本的视觉空隙。
+        NSFont(name: "Menlo-Regular", size: size) ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
     }
 
     private func currentTerminalWindowSize() -> (cols: Int, rows: Int)? {

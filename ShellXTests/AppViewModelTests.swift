@@ -141,6 +141,24 @@ final class AppViewModelTests: XCTestCase {
         XCTAssertTrue(message.contains("ssh-keyscan -T 5 -t ed25519,ecdsa,rsa -p 22 170.106.76.21"))
     }
 
+    func testKnownHostScanFailureCanFallbackToExistingRecord() {
+        XCTAssertTrue(
+            KnownHostsService.canTrustExistingRecordWhenScanFails(
+                storedLines: ["example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample"]
+            )
+        )
+        XCTAssertFalse(KnownHostsService.canTrustExistingRecordWhenScanFails(storedLines: []))
+    }
+
+    func testTerminalContentFontPrefersMenloWhenAvailable() {
+        let font = TerminalSessionViewModel.terminalContentFont(ofSize: 13)
+
+        if NSFont(name: "Menlo-Regular", size: 13) != nil {
+            XCTAssertEqual(font.fontName, "Menlo-Regular")
+        }
+        XCTAssertEqual(font.pointSize, 13)
+    }
+
     func testAppearancePreferenceRoundTripsSupportedModes() {
         let originalValue = ShellXPreferences.appearanceMode
         defer {
