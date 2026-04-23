@@ -185,8 +185,8 @@ struct ScriptBatchExecutionService: Sendable {
         if isEscaping {
             throw ScriptArgumentParseError.trailingEscape
         }
-        if let quote {
-            throw ScriptArgumentParseError.unclosedQuote(quote)
+        if let unclosedQuote = quote {
+            throw ScriptArgumentParseError.unclosedQuote(unclosedQuote)
         }
         if hasCurrent {
             arguments.append(current)
@@ -196,7 +196,7 @@ struct ScriptBatchExecutionService: Sendable {
     }
 
     static func remoteShellCommand(scriptArguments: [String]) -> String {
-        (["sh", "-s", "--"] + scriptArguments.map(shellQuote)).joined(separator: " ")
+        (["sh", "-s", "--"] + scriptArguments.map { shellQuote($0) }).joined(separator: " ")
     }
 
     private static func shellQuote(_ argument: String) -> String {

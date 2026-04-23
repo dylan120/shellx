@@ -7,12 +7,7 @@ final class ScriptBatchExecutionViewModel: ObservableObject {
     @Published var results: [ScriptExecutionResult] = []
     @Published var selectedResultID: UUID?
     @Published var isRunning = false
-    @Published var argumentText = "" {
-        didSet {
-            argumentValidationMessage = Self.validationMessage(for: argumentText)
-        }
-    }
-    @Published private(set) var argumentValidationMessage: String?
+    @Published var argumentText = ""
 
     private let maxConcurrentExecutions = 6
     private let service = ScriptBatchExecutionService()
@@ -20,6 +15,10 @@ final class ScriptBatchExecutionViewModel: ObservableObject {
     var selectedResult: ScriptExecutionResult? {
         guard let selectedResultID else { return results.first }
         return results.first(where: { $0.id == selectedResultID })
+    }
+
+    var argumentValidationMessage: String? {
+        Self.validationMessage(for: argumentText)
     }
 
     func toggleSession(_ sessionID: UUID) {
@@ -47,14 +46,7 @@ final class ScriptBatchExecutionViewModel: ObservableObject {
 
         let targetSessions = sessions.filter { selectedSessionIDs.contains($0.id) }
         guard !targetSessions.isEmpty else { return }
-        let scriptArguments: [String]
-        do {
-            scriptArguments = try ScriptBatchExecutionService.parseArgumentText(argumentText)
-            argumentValidationMessage = nil
-        } catch {
-            argumentValidationMessage = error.localizedDescription
-            return
-        }
+        guard let scriptArguments = try? ScriptBatchExecutionService.parseArgumentText(argumentText) else { return }
 
         isRunning = true
         results = targetSessions.map {
@@ -64,12 +56,17 @@ final class ScriptBatchExecutionViewModel: ObservableObject {
 
         let executionService = service
         let maxConcurrentExecutions = maxConcurrentExecutions
+        let selectedSessions = targetSessions
         Task { [weak self] in
             guard let self else { return }
-            for chunk in targetSessions.chunked(into: maxConcurrentExecutions) {
+            for chunk in selectedSessions.chunked(into: maxConcurrentExecutions) {
                 await withTaskGroup(of: SessionScriptRun.self) { group in
                     for session in chunk {
                         self.updateStatus(for: session.id, status: .running)
+                        let session = session
+                        let script = script
+                        let scriptArguments = scriptArguments
+                        let executionService = executionService
                         group.addTask {
                             let outcome = await executionService.execute(
                                 script: script,
@@ -163,9 +160,15 @@ struct ScriptBatchExecutionView: View {
             VStack(alignment: .leading, spacing: 6) {
                 TextField("执行参数，例如：prod \"hello world\" --force", text: $runner.argumentText)
                     .disabled(runner.isRunning)
-                Text(runner.argumentValidationMessage ?? "参数会传给远端 `sh -s --`，脚本中可通过 `$1`、`$2`、`$@` 读取。")
-                    .font(.footnote)
-                    .foregroundStyle(runner.argumentValidationMessage == nil ? .secondary : .red)
+                if let argumentValidationMessage = runner.argumentValidationMessage {
+                    Text(argumentValidationMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                } else {
+                    Text("参数会传给远端 `sh -s --`，脚本中可通过 `$1`、`$2`、`$@` 读取。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             HSplitView {
