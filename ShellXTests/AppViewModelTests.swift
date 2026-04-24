@@ -667,15 +667,22 @@ final class AppViewModelTests: XCTestCase {
         XCTAssertTrue(terminalView.attachedSessionModel === secondModel)
     }
 
-    func testFocusedTerminalLookupIgnoresDetachedTerminalView() {
+    func testFocusedTerminalLookupRequiresAttachedActiveTerminalView() {
         let terminalView = ShellXTerminalView(frame: .zero)
         let model = TerminalSessionViewModel()
 
         XCTAssertNil(ShellXTerminalView.focusedTerminalView(from: terminalView))
 
         model.attachTerminalView(terminalView)
+        XCTAssertNil(ShellXTerminalView.focusedTerminalView(from: terminalView))
+
+        terminalView.isActiveForInput = true
         XCTAssertTrue(ShellXTerminalView.focusedTerminalView(from: terminalView) === terminalView)
 
+        terminalView.isActiveForInput = false
+        XCTAssertNil(ShellXTerminalView.focusedTerminalView(from: terminalView))
+
+        terminalView.isActiveForInput = true
         model.detachTerminalView(terminalView)
         XCTAssertNil(ShellXTerminalView.focusedTerminalView(from: terminalView))
     }

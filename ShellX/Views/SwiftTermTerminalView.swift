@@ -30,12 +30,10 @@ struct SwiftTermTerminalView: NSViewRepresentable {
         terminalView.onSelectionChanged = { hasSelection in
             sessionModel.updateTextSelectionState(hasSelection)
         }
+        terminalView.isActiveForInput = isActive
 
         guard isActive else {
             terminalView.clearWindowFocusIfNeeded()
-            sessionModel.detachTerminalView(terminalView)
-            context.coordinator.attachedViewIdentity = nil
-            context.coordinator.attachedSessionModelIdentity = nil
             return
         }
 
@@ -43,7 +41,8 @@ struct SwiftTermTerminalView: NSViewRepresentable {
         let currentSessionModelIdentity = ObjectIdentifier(sessionModel)
         let isSameView = context.coordinator.attachedViewIdentity == currentViewIdentity
         let isSameSessionModel = context.coordinator.attachedSessionModelIdentity == currentSessionModelIdentity
-        guard !(isSameView && isSameSessionModel) else {
+        if isSameView && isSameSessionModel {
+            terminalView.focusIfNeeded()
             return
         }
         context.coordinator.attachedViewIdentity = currentViewIdentity
@@ -112,6 +111,7 @@ final class ShellXTerminalView: TerminalView {
     private var preferencesObserver: Any?
     weak var attachedSessionModel: TerminalSessionViewModel?
     var onSelectionChanged: ((Bool) -> Void)?
+    var isActiveForInput = false
 
     func focusIfNeeded() {
         guard let window, window.firstResponder !== self else { return }
@@ -410,7 +410,8 @@ final class ShellXTerminalView: TerminalView {
     static func focusedTerminalView(from firstResponder: NSView?) -> ShellXTerminalView? {
         guard let firstResponder,
               let terminalView = firstResponder.nearestTerminalAncestor(),
-              terminalView.attachedSessionModel != nil else {
+              terminalView.attachedSessionModel != nil,
+              terminalView.isActiveForInput else {
             return nil
         }
         return terminalView
