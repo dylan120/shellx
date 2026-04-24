@@ -181,6 +181,7 @@ private struct TerminalTabWorkspaceView: View {
     @State private var draggedTabID: UUID?
     @State private var pendingCloseRequest: TerminalTabCloseRequest?
     @State private var isPresentingCloseConfirmation = false
+    @State private var hoveredTabID: UUID?
 
     let onClose: (UUID) -> Void
 
@@ -191,6 +192,7 @@ private struct TerminalTabWorkspaceView: View {
                     ForEach(Array(appModel.openTerminalTabs.enumerated()), id: \.element.id) { index, tab in
                         let sessionModel = appModel.terminalSessionModel(for: tab.id)
                         let isActive = tab.id == appModel.activeTerminalTabID
+                        let isHovered = hoveredTabID == tab.id
                         HStack(spacing: 6) {
                             if index > 0 {
                                 Rectangle()
@@ -204,17 +206,22 @@ private struct TerminalTabWorkspaceView: View {
                                 Text(tab.title)
                                     .font(.callout.weight(isActive ? .semibold : .regular))
                                     .lineLimit(1)
-                                Button {
-                                    pendingCloseRequest = .single(tab.id)
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .font(.caption)
-                                        .symbolRenderingMode(.hierarchical)
+                                ZStack {
+                                    if isHovered {
+                                        Button {
+                                            pendingCloseRequest = .single(tab.id)
+                                        } label: {
+                                            Image(systemName: "xmark.circle.fill")
+                                                .font(.system(size: 15, weight: .bold))
+                                                .symbolRenderingMode(.palette)
+                                                .foregroundStyle(Color.white, Color.red)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .accessibilityLabel("关闭终端标签")
+                                        .help("关闭终端标签")
+                                    }
                                 }
-                                .buttonStyle(.plain)
-                                .foregroundStyle(Color.secondary)
-                                .accessibilityLabel("关闭终端标签")
-                                .help("关闭终端标签")
+                                .frame(width: 18, height: 18)
                             }
                         }
                         .padding(.horizontal, 10)
@@ -228,6 +235,13 @@ private struct TerminalTabWorkspaceView: View {
                             }
                         }
                         .foregroundStyle(Color.primary)
+                        .onHover { isHovering in
+                            if isHovering {
+                                hoveredTabID = tab.id
+                            } else if hoveredTabID == tab.id {
+                                hoveredTabID = nil
+                            }
+                        }
                         .onTapGesture {
                             appModel.activateTerminal(tabID: tab.id)
                         }

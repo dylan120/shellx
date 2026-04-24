@@ -347,7 +347,7 @@ private struct GlobalPreferencesView: View {
                             Text("自动更新")
                             Image(systemName: "questionmark.circle")
                                 .foregroundStyle(.secondary)
-                                .help("开启后，ShellX 启动时会后台检查 GitHub Release；发现新版本会自动下载安装并重启应用。")
+                                .help("开启后，ShellX 启动时会后台检查 GitHub Release；发现新版本会自动下载，下载完成后需要手动重启生效。")
                         }
                     }
 
@@ -373,7 +373,20 @@ private struct GlobalPreferencesView: View {
                             Button {
                                 updateService.downloadAndInstallAvailableUpdate()
                             } label: {
-                                Label("下载并安装", systemImage: "square.and.arrow.down")
+                                Label("下载更新", systemImage: "square.and.arrow.down")
+                            }
+                        }
+                    }
+
+                    if case .readyToRestart = updateService.phase {
+                        HStack(spacing: 12) {
+                            Text("更新已下载，重启后安装并生效。")
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button {
+                                updateService.restartToApplyDownloadedUpdate()
+                            } label: {
+                                Label("立即重启", systemImage: "arrow.triangle.2.circlepath")
                             }
                         }
                     }

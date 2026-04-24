@@ -23,6 +23,7 @@ enum AppUpdatePhase: Equatable {
     case upToDate(version: String)
     case updateAvailable(AppUpdateRelease)
     case downloading(AppUpdateRelease, progress: Double)
+    case readyToRestart(AppUpdateRelease)
     case installing(AppUpdateRelease)
     case failed(String)
 
@@ -38,8 +39,10 @@ enum AppUpdatePhase: Equatable {
             return "发现新版本：\(release.tagName)"
         case .downloading(let release, let progress):
             return "正在下载 \(release.tagName)：\(Int(progress * 100))%"
+        case .readyToRestart(let release):
+            return "\(release.tagName) 已下载，重启 ShellX 后安装并生效"
         case .installing(let release):
-            return "正在安装 \(release.tagName)，应用将自动重启"
+            return "正在安装 \(release.tagName)，ShellX 将重新打开"
         case .failed(let message):
             return message
         }
@@ -65,6 +68,7 @@ final class AppUpdateService: NSObject, ObservableObject {
 
     private var activeRelease: AppUpdateRelease?
     private var activeAsset: AppUpdateAsset?
+    private var pendingInstallAssetURL: URL?
     private lazy var downloadSession = URLSession(
         configuration: .default,
         delegate: self,
@@ -113,10 +117,22 @@ final class AppUpdateService: NSObject, ObservableObject {
         beginDownloadAndInstall(release)
     }
 
+    func restartToApplyDownloadedUpdate() {
+        guard case .readyToRestart(let release) = phase,
+              let pendingInstallAssetURL else { return }
+        do {
+            phase = .installing(release)
+            try installAndRelaunch(assetURL: pendingInstallAssetURL, release: release)
+        } catch {
+            phase = .failed("安装更新失败：\(error.localizedDescription)")
+        }
+    }
+
     private func beginDownloadAndInstall(_ release: AppUpdateRelease) {
         guard !isBusy || phase == .updateAvailable(release) else { return }
         activeRelease = release
         activeAsset = release.asset
+        pendingInstallAssetURL = nil
         phase = .downloading(release, progress: 0)
 
         var request = URLRequest(url: release.asset.downloadURL)
@@ -163,8 +179,8 @@ final class AppUpdateService: NSObject, ObservableObject {
 
         do {
             let updateURL = try persistDownloadedAsset(temporaryURL, asset: asset, release: release)
-            phase = .installing(release)
-            try installAndRelaunch(assetURL: updateURL, release: release)
+            pendingInstallAssetURL = updateURL
+            phase = .readyToRestart(release)
         } catch {
             phase = .failed("安装更新失败：\(error.localizedDescription)")
         }

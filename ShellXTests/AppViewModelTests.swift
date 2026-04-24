@@ -355,6 +355,23 @@ final class AppViewModelTests: XCTestCase {
         XCTAssertEqual(AppUpdateService.compareVersions("1.2.0", "1.10.0"), .orderedAscending)
     }
 
+    func testUpdateReadyToRestartStatusPromptsManualRestart() {
+        let release = AppUpdateRelease(
+            id: 1,
+            version: "0.3.0",
+            tagName: "v0.3.0",
+            name: "v0.3.0",
+            htmlURL: URL(string: "https://example.com/releases/v0.3.0")!,
+            asset: AppUpdateAsset(
+                name: "ShellX-Release.dmg",
+                downloadURL: URL(string: "https://example.com/ShellX-Release.dmg")!,
+                size: 1
+            )
+        )
+
+        XCTAssertTrue(AppUpdatePhase.readyToRestart(release).statusText.contains("重启 ShellX 后安装并生效"))
+    }
+
     func testOpenLocalTerminalUsesFixedTabIdentifier() {
         let viewModel = AppViewModel(repository: AppStorageRepository())
 
