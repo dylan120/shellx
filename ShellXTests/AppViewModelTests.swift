@@ -319,6 +319,23 @@ final class AppViewModelTests: XCTestCase {
         XCTAssertEqual(arguments.last, #"sh -s -- 'prod' 'hello world' 'it'\''s-ok' ''"#)
     }
 
+    func testBatchScriptTimeoutDefaultsToOneHour() {
+        XCTAssertEqual(ScriptBatchExecutionService.defaultProcessTimeoutSeconds, 3600)
+    }
+
+    func testBatchScriptTimeoutValidationRejectsNonPositiveValues() {
+        let viewModel = ScriptBatchExecutionViewModel()
+
+        viewModel.timeoutText = "0"
+        XCTAssertEqual(viewModel.timeoutValidationMessage, "超时时间必须是大于 0 的整数秒。")
+
+        viewModel.timeoutText = "-1"
+        XCTAssertEqual(viewModel.timeoutValidationMessage, "超时时间必须是大于 0 的整数秒。")
+
+        viewModel.timeoutText = "3600"
+        XCTAssertNil(viewModel.timeoutValidationMessage)
+    }
+
     func testReopenTerminalTabsAfterMainWindowClosePreferenceRoundTrips() {
         let originalValue = ShellXPreferences.reopenTerminalTabsAfterMainWindowClose
         defer {
@@ -648,6 +665,19 @@ final class AppViewModelTests: XCTestCase {
         XCTAssertFalse(firstModel.isAttached(to: terminalView))
         XCTAssertTrue(secondModel.isAttached(to: terminalView))
         XCTAssertTrue(terminalView.attachedSessionModel === secondModel)
+    }
+
+    func testFocusedTerminalLookupIgnoresDetachedTerminalView() {
+        let terminalView = ShellXTerminalView(frame: .zero)
+        let model = TerminalSessionViewModel()
+
+        XCTAssertNil(ShellXTerminalView.focusedTerminalView(from: terminalView))
+
+        model.attachTerminalView(terminalView)
+        XCTAssertTrue(ShellXTerminalView.focusedTerminalView(from: terminalView) === terminalView)
+
+        model.detachTerminalView(terminalView)
+        XCTAssertNil(ShellXTerminalView.focusedTerminalView(from: terminalView))
     }
 
     func testMainWindowCloseKeepsTerminalTabsWhenPreferenceIsEnabled() {

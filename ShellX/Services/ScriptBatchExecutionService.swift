@@ -1,14 +1,24 @@
 import Foundation
 
-struct ScriptBatchExecutionService: Sendable {
+final class ScriptBatchExecutionService: @unchecked Sendable {
+    enum TerminationReason: Sendable {
+        case manual
+        case timeout(seconds: Int)
+    }
+
+    static let defaultProcessTimeoutSeconds = 3600
+
     // 批量执行只保留最近一段输出，避免大量主机同时返回大日志时占满内存。
     private let maxOutputBytes = 131_072
-    private let processTimeoutSeconds: TimeInterval = 300
+    private let stateLock = NSLock()
+    private var runningProcesses: [UUID: Process] = [:]
+    private var terminationReasons: [UUID: TerminationReason] = [:]
 
     func execute(
         script: UserScript,
         session: SSHSessionProfile,
-        arguments scriptArguments: [String] = []
+        arguments scriptArguments: [String] = [],
+        timeoutSeconds: Int = defaultProcessTimeoutSeconds
     ) async -> (status: ScriptExecutionStatus, output: String) {
         // 非交互批量任务不能安全处理密码提示，避免任务卡在远端认证阶段。
         guard session.authMethod != .password else {
@@ -24,10 +34,42 @@ struct ScriptBatchExecutionService: Sendable {
                 scriptContent: script.content,
                 session: session,
                 knownHostsPath: knownHostsPath,
-                scriptArguments: scriptArguments
+                scriptArguments: scriptArguments,
+                timeoutSeconds: max(1, timeoutSeconds)
             )
         } catch {
             return (.failed(error.localizedDescription), "")
+        }
+    }
+
+    func terminate(sessionID: UUID) {
+        terminate(sessionIDs: [sessionID])
+    }
+
+    func terminate(sessionIDs: [UUID]) {
+        let processes = stateLock.withLock { () -> [Process] in
+            sessionIDs.compactMap { sessionID in
+                guard let process = runningProcesses[sessionID] else { return nil }
+                terminationReasons[sessionID] = .manual
+                return process
+            }
+        }
+
+        for process in processes where process.isRunning {
+            process.terminate()
+        }
+    }
+
+    func terminateAllRunningProcesses() {
+        let processes = stateLock.withLock { () -> [Process] in
+            for sessionID in runningProcesses.keys {
+                terminationReasons[sessionID] = .manual
+            }
+            return Array(runningProcesses.values)
+        }
+
+        for process in processes where process.isRunning {
+            process.terminate()
         }
     }
 
@@ -35,7 +77,8 @@ struct ScriptBatchExecutionService: Sendable {
         scriptContent: String,
         session: SSHSessionProfile,
         knownHostsPath: String,
-        scriptArguments: [String]
+        scriptArguments: [String],
+        timeoutSeconds: Int
     ) async throws -> (status: ScriptExecutionStatus, output: String) {
         try await withCheckedThrowingContinuation { continuation in
             let process = Process()
@@ -44,8 +87,8 @@ struct ScriptBatchExecutionService: Sendable {
             let outputBuffer = LockedOutputBuffer(maxBytes: maxOutputBytes)
             let timeoutTask = DispatchWorkItem {
                 if process.isRunning {
+                    self.markTerminationReason(.timeout(seconds: timeoutSeconds), for: session.id)
                     process.terminate()
-                    outputBuffer.append("\n[ShellX] 执行超过 300 秒，已终止。")
                 }
             }
 
@@ -72,8 +115,14 @@ struct ScriptBatchExecutionService: Sendable {
                 if !trailingData.isEmpty {
                     outputBuffer.append(trailingData)
                 }
+                let terminationReason = self.unregisterProcess(for: session.id)
+                if let terminationReason {
+                    outputBuffer.append("\n[ShellX] \(Self.terminationMessage(for: terminationReason))")
+                }
                 let output = outputBuffer.stringValue()
-                if finishedProcess.terminationStatus == 0 {
+                if let terminationReason {
+                    continuation.resume(returning: (.failed(Self.terminationStatusMessage(for: terminationReason)), output))
+                } else if finishedProcess.terminationStatus == 0 {
                     continuation.resume(returning: (.succeeded, output))
                 } else {
                     continuation.resume(returning: (
@@ -85,8 +134,9 @@ struct ScriptBatchExecutionService: Sendable {
 
             do {
                 try process.run()
+                register(process: process, for: session.id)
                 DispatchQueue.global().asyncAfter(
-                    deadline: .now() + processTimeoutSeconds,
+                    deadline: .now() + .seconds(timeoutSeconds),
                     execute: timeoutTask
                 )
                 inputPipe.fileHandleForWriting.write(Data(scriptContent.utf8))
@@ -97,6 +147,44 @@ struct ScriptBatchExecutionService: Sendable {
                 outputPipe.fileHandleForReading.readabilityHandler = nil
                 continuation.resume(throwing: error)
             }
+        }
+    }
+
+    private func register(process: Process, for sessionID: UUID) {
+        stateLock.withLock {
+            runningProcesses[sessionID] = process
+            terminationReasons.removeValue(forKey: sessionID)
+        }
+    }
+
+    private func unregisterProcess(for sessionID: UUID) -> TerminationReason? {
+        stateLock.withLock {
+            runningProcesses.removeValue(forKey: sessionID)
+            return terminationReasons.removeValue(forKey: sessionID)
+        }
+    }
+
+    private func markTerminationReason(_ reason: TerminationReason, for sessionID: UUID) {
+        stateLock.withLock {
+            terminationReasons[sessionID] = reason
+        }
+    }
+
+    private static func terminationMessage(for reason: TerminationReason) -> String {
+        switch reason {
+        case .manual:
+            return "脚本执行已被手动终止。"
+        case .timeout(let seconds):
+            return "脚本执行超过 \(seconds) 秒，已自动终止。"
+        }
+    }
+
+    private static func terminationStatusMessage(for reason: TerminationReason) -> String {
+        switch reason {
+        case .manual:
+            return "已终止"
+        case .timeout(let seconds):
+            return "执行超时（\(seconds) 秒）"
         }
     }
 
@@ -203,6 +291,15 @@ struct ScriptBatchExecutionService: Sendable {
         guard !argument.isEmpty else { return "''" }
         let quoted = argument.replacingOccurrences(of: "'", with: "'\\''")
         return "'\(quoted)'"
+    }
+}
+
+private extension NSLock {
+    @discardableResult
+    func withLock<T>(_ body: () -> T) -> T {
+        lock()
+        defer { unlock() }
+        return body()
     }
 }
 

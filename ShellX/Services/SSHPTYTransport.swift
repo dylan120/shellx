@@ -48,9 +48,12 @@ final class SSHPTYTransport {
     private var lastWindowSize: (cols: Int, rows: Int)?
     private var debugTranscript = ""
     private let maxDebugTranscriptLength = 65536
+    private let maxDebugBytesPerRead = 4096
     private var currentUserCommandBuffer = ""
     private var lastSubmittedUserCommand: String?
     private var activeProcessToken: UInt64 = 0
+    private var lastDebugSnapshotPublishTime: DispatchTime?
+    private let minDebugSnapshotPublishIntervalNanoseconds: UInt64 = 250_000_000
 
     // Swift 无法稳定直接导入 wait(2) 相关 C 宏，这里按 Darwin 的状态位规则自行解析。
     private static func waitStatus(_ status: Int32) -> Int32 {
@@ -174,6 +177,7 @@ final class SSHPTYTransport {
         isCancellingTransfer = false
         lastWindowSize = normalizedWindowSize
         debugTranscript.removeAll(keepingCapacity: true)
+        lastDebugSnapshotPublishTime = nil
 
         let readSource = DispatchSource.makeReadSource(fileDescriptor: fd, queue: ioQueue)
         readSource.setEventHandler { [weak self] in
@@ -364,6 +368,7 @@ final class SSHPTYTransport {
         didLogRepeatedPasswordPrompt = false
         lastWindowSize = nil
         debugTranscript.removeAll(keepingCapacity: true)
+        lastDebugSnapshotPublishTime = nil
     }
 
     private func handleRead(expectedFD: Int32, token: UInt64) {
@@ -449,6 +454,7 @@ final class SSHPTYTransport {
             exitCode = nil
         }
 
+        publishDebugSnapshot(force: true)
         notifyDelegate { delegate in
             delegate.transportDidTerminate(exitCode: exitCode)
         }
@@ -727,11 +733,11 @@ final class SSHPTYTransport {
     }
 
     private func updateDebugTranscript(with data: Data) {
-        let normalized = Self.debugString(from: data)
+        let normalized = Self.debugString(from: data, maxBytes: maxDebugBytesPerRead)
         guard !normalized.isEmpty else { return }
 
         debugTranscript.append(normalized)
-        publishDebugSnapshot()
+        publishDebugSnapshot(force: false)
     }
 
     private func appendDebugLine(_ line: String) {
@@ -739,13 +745,21 @@ final class SSHPTYTransport {
         if !line.hasSuffix("\n") {
             debugTranscript.append("\n")
         }
-        publishDebugSnapshot()
+        publishDebugSnapshot(force: true)
     }
 
-    private func publishDebugSnapshot() {
+    private func publishDebugSnapshot(force: Bool) {
         if debugTranscript.count > maxDebugTranscriptLength {
             debugTranscript = String(debugTranscript.suffix(maxDebugTranscriptLength))
         }
+
+        let now = DispatchTime.now()
+        if !force,
+           let lastDebugSnapshotPublishTime,
+           now.uptimeNanoseconds - lastDebugSnapshotPublishTime.uptimeNanoseconds < minDebugSnapshotPublishIntervalNanoseconds {
+            return
+        }
+        lastDebugSnapshotPublishTime = now
 
         let snapshot = debugTranscript
         notifyDelegate { delegate in
@@ -753,28 +767,13 @@ final class SSHPTYTransport {
         }
     }
 
-    private static func debugString(from data: Data) -> String {
-        var result = ""
-        result.reserveCapacity(data.count * 2)
-
-        for byte in data {
-            switch byte {
-            case 0x1B:
-                result.append("<ESC>")
-            case 0x0D:
-                result.append("<CR>\n")
-            case 0x0A:
-                result.append("<LF>\n")
-            case 0x09:
-                result.append("<TAB>")
-            case 0x20...0x7E:
-                result.append(Character(UnicodeScalar(byte)))
-            default:
-                result.append(String(format: "<0x%02X>", byte))
-            }
-        }
-
-        return result
+    private static func debugString(from data: Data, maxBytes: Int) -> String {
+        let clippedData = data.count > maxBytes ? data.suffix(maxBytes) : data[...]
+        return String(decoding: clippedData, as: UTF8.self)
+            .replacingOccurrences(of: "\u{1B}", with: "<ESC>")
+            .replacingOccurrences(of: "\r", with: "<CR>\n")
+            .replacingOccurrences(of: "\n", with: "<LF>\n")
+            .replacingOccurrences(of: "\t", with: "<TAB>")
     }
 
     private func preferredZModemDirection() -> ZModemTransferDirection? {

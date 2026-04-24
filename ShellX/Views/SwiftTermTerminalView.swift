@@ -4,6 +4,7 @@ import SwiftUI
 
 struct SwiftTermTerminalView: NSViewRepresentable {
     @ObservedObject var sessionModel: TerminalSessionViewModel
+    let isActive: Bool
 
     final class Coordinator {
         var attachedViewIdentity: ObjectIdentifier?
@@ -30,6 +31,14 @@ struct SwiftTermTerminalView: NSViewRepresentable {
             sessionModel.updateTextSelectionState(hasSelection)
         }
 
+        guard isActive else {
+            terminalView.clearWindowFocusIfNeeded()
+            sessionModel.detachTerminalView(terminalView)
+            context.coordinator.attachedViewIdentity = nil
+            context.coordinator.attachedSessionModelIdentity = nil
+            return
+        }
+
         let currentViewIdentity = ObjectIdentifier(terminalView)
         let currentSessionModelIdentity = ObjectIdentifier(sessionModel)
         let isSameView = context.coordinator.attachedViewIdentity == currentViewIdentity
@@ -45,6 +54,7 @@ struct SwiftTermTerminalView: NSViewRepresentable {
         // 当 SwiftUI 复用同一个 NSView 但切换到新的会话模型时，也需要重新附着，否则新会话收不到输出。
         DispatchQueue.main.async {
             sessionModel.attachTerminalView(terminalView)
+            terminalView.focusIfNeeded()
         }
     }
 }
@@ -102,6 +112,16 @@ final class ShellXTerminalView: TerminalView {
     private var preferencesObserver: Any?
     weak var attachedSessionModel: TerminalSessionViewModel?
     var onSelectionChanged: ((Bool) -> Void)?
+
+    func focusIfNeeded() {
+        guard let window, window.firstResponder !== self else { return }
+        window.makeFirstResponder(self)
+    }
+
+    func clearWindowFocusIfNeeded() {
+        guard let window, window.firstResponder === self else { return }
+        window.makeFirstResponder(window.contentView)
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -384,7 +404,16 @@ final class ShellXTerminalView: TerminalView {
         guard let firstResponder = window.firstResponder as? NSView else {
             return nil
         }
-        return firstResponder.nearestTerminalAncestor()
+        return focusedTerminalView(from: firstResponder)
+    }
+
+    static func focusedTerminalView(from firstResponder: NSView?) -> ShellXTerminalView? {
+        guard let firstResponder,
+              let terminalView = firstResponder.nearestTerminalAncestor(),
+              terminalView.attachedSessionModel != nil else {
+            return nil
+        }
+        return terminalView
     }
 
     private func startObservingPreferences() {

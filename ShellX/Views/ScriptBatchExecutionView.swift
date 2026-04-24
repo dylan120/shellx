@@ -2,12 +2,17 @@ import SwiftUI
 
 @MainActor
 final class ScriptBatchExecutionViewModel: ObservableObject {
+    private enum Defaults {
+        static let timeoutSeconds = ScriptBatchExecutionService.defaultProcessTimeoutSeconds
+    }
+
     @Published var selectedScriptID: UUID?
     @Published var selectedSessionIDs: Set<UUID> = []
     @Published var results: [ScriptExecutionResult] = []
     @Published var selectedResultID: UUID?
     @Published var isRunning = false
     @Published var argumentText = ""
+    @Published var timeoutText = "\(Defaults.timeoutSeconds)"
 
     private let maxConcurrentExecutions = 6
     private let service = ScriptBatchExecutionService()
@@ -19,6 +24,19 @@ final class ScriptBatchExecutionViewModel: ObservableObject {
 
     var argumentValidationMessage: String? {
         Self.validationMessage(for: argumentText)
+    }
+
+    var timeoutValidationMessage: String? {
+        Self.timeoutValidationMessage(for: timeoutText)
+    }
+
+    var hasRunningResults: Bool {
+        results.contains(where: { $0.status == .running })
+    }
+
+    var selectedRunningSessionID: UUID? {
+        guard let selectedResult, selectedResult.status == .running else { return nil }
+        return selectedResult.sessionID
     }
 
     func toggleSession(_ sessionID: UUID) {
@@ -40,7 +58,8 @@ final class ScriptBatchExecutionViewModel: ObservableObject {
     func run(scripts: [UserScript], sessions: [SSHSessionProfile]) {
         guard !isRunning,
               let selectedScriptID,
-              let script = scripts.first(where: { $0.id == selectedScriptID }) else {
+              let script = scripts.first(where: { $0.id == selectedScriptID }),
+              let timeoutSeconds = Self.timeoutSeconds(from: timeoutText) else {
             return
         }
 
@@ -71,7 +90,8 @@ final class ScriptBatchExecutionViewModel: ObservableObject {
                             let outcome = await executionService.execute(
                                 script: script,
                                 session: session,
-                                arguments: scriptArguments
+                                arguments: scriptArguments,
+                                timeoutSeconds: timeoutSeconds
                             )
                             return SessionScriptRun(
                                 sessionID: session.id,
@@ -88,6 +108,19 @@ final class ScriptBatchExecutionViewModel: ObservableObject {
             }
             self.isRunning = false
         }
+    }
+
+    func terminateSelectedRun() {
+        guard let sessionID = selectedRunningSessionID else { return }
+        service.terminate(sessionID: sessionID)
+    }
+
+    func terminateRunningSessions() {
+        let runningSessionIDs = results
+            .filter { $0.status == .running }
+            .map(\.sessionID)
+        guard !runningSessionIDs.isEmpty else { return }
+        service.terminate(sessionIDs: runningSessionIDs)
     }
 
     private func updateStatus(
@@ -109,6 +142,17 @@ final class ScriptBatchExecutionViewModel: ObservableObject {
         } catch {
             return error.localizedDescription
         }
+    }
+
+    private static func timeoutSeconds(from text: String) -> Int? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let value = Int(trimmed), value > 0 else { return nil }
+        return value
+    }
+
+    private static func timeoutValidationMessage(for text: String) -> String? {
+        guard timeoutSeconds(from: text) == nil else { return nil }
+        return "超时时间必须是大于 0 的整数秒。"
     }
 }
 
@@ -148,6 +192,16 @@ struct ScriptBatchExecutionView: View {
                 }
                 .disabled(runner.selectedSessionIDs.isEmpty || runner.isRunning)
 
+                Button("终止选中") {
+                    runner.terminateSelectedRun()
+                }
+                .disabled(runner.selectedRunningSessionID == nil)
+
+                Button("终止运行中") {
+                    runner.terminateRunningSessions()
+                }
+                .disabled(!runner.hasRunningResults)
+
                 Button {
                     runner.run(scripts: appModel.scripts, sessions: appModel.sessions)
                 } label: {
@@ -171,6 +225,26 @@ struct ScriptBatchExecutionView: View {
                 }
             }
 
+            HStack(spacing: 12) {
+                Text("超时")
+                    .foregroundStyle(.secondary)
+                TextField("3600", text: $runner.timeoutText)
+                    .frame(width: 96)
+                    .disabled(runner.isRunning)
+                Text("秒")
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            if let timeoutValidationMessage = runner.timeoutValidationMessage {
+                Text(timeoutValidationMessage)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+            } else {
+                Text("单台主机脚本执行超过设定时间会自动终止，默认 3600 秒。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
             HSplitView {
                 SessionScriptSelectionTree(selectedSessionIDs: $runner.selectedSessionIDs)
                     .environmentObject(appModel)
@@ -179,7 +253,11 @@ struct ScriptBatchExecutionView: View {
                 VStack(spacing: 0) {
                     ScriptExecutionResultList(
                         results: runner.results,
-                        selectedResultID: $runner.selectedResultID
+                        selectedResultID: $runner.selectedResultID,
+                        onTerminate: { sessionID in
+                            runner.selectedResultID = runner.results.first(where: { $0.sessionID == sessionID })?.id
+                            runner.terminateSelectedRun()
+                        }
                     )
                     Divider()
                     ScriptExecutionOutputView(result: runner.selectedResult)
@@ -198,7 +276,8 @@ struct ScriptBatchExecutionView: View {
         runner.selectedScriptID != nil &&
             !runner.selectedSessionIDs.isEmpty &&
             !runner.isRunning &&
-            runner.argumentValidationMessage == nil
+            runner.argumentValidationMessage == nil &&
+            runner.timeoutValidationMessage == nil
     }
 }
 
@@ -329,6 +408,7 @@ private struct ScriptSessionSelectionRow: View {
 private struct ScriptExecutionResultList: View {
     let results: [ScriptExecutionResult]
     @Binding var selectedResultID: UUID?
+    let onTerminate: (UUID) -> Void
 
     var body: some View {
         List(selection: $selectedResultID) {
@@ -345,6 +425,13 @@ private struct ScriptExecutionResultList: View {
                 }
                 .padding(.vertical, 4)
                 .tag(Optional(result.id))
+                .contextMenu {
+                    if result.status == .running {
+                        Button("终止该主机执行") {
+                            onTerminate(result.sessionID)
+                        }
+                    }
+                }
             }
         }
         .frame(minHeight: 240)

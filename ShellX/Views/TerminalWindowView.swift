@@ -42,7 +42,7 @@ struct TerminalWindowView: View {
     var body: some View {
         VStack(spacing: 0) {
             ZStack(alignment: .bottomLeading) {
-                SwiftTermTerminalView(sessionModel: sessionModel)
+                SwiftTermTerminalView(sessionModel: sessionModel, isActive: allowsModalPresentation)
                     .background(Color(nsColor: .textBackgroundColor))
                     .contextMenu {
                         Button("复制") {
