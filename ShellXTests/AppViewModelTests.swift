@@ -150,15 +150,6 @@ final class AppViewModelTests: XCTestCase {
         XCTAssertFalse(KnownHostsService.canTrustExistingRecordWhenScanFails(storedLines: []))
     }
 
-    func testKnownHostExistingRecordCanSkipPreScan() {
-        XCTAssertTrue(
-            KnownHostsService.canTrustExistingRecordWithoutPreScan(
-                storedLines: ["example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample"]
-            )
-        )
-        XCTAssertFalse(KnownHostsService.canTrustExistingRecordWithoutPreScan(storedLines: []))
-    }
-
     func testTerminalContentFontPrefersMenloWhenAvailable() {
         let font = TerminalSessionViewModel.terminalContentFont(ofSize: 13)
 

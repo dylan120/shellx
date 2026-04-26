@@ -30,12 +30,11 @@ actor KnownHostsService {
 
     func evaluate(host: String, port: Int) async throws -> KnownHostTrustState {
         let storedLines = try trustedLines(for: host, port: port)
-        if Self.canTrustExistingRecordWithoutPreScan(storedLines: storedLines) {
-            return .trusted
-        }
 
         let scannedLines: [String]
         do {
+            // 即使已有记录也要重新扫描一次，用于发现服务器新增的 ED25519/ECDSA/RSA host key。
+            // 否则 OpenSSH 可能协商到本地未记录的算法，并在严格校验下直接拒绝连接。
             scannedLines = try await scanHostKeys(host: host, port: port)
         } catch {
             if Self.canTrustExistingRecordWhenScanFails(storedLines: storedLines) {
@@ -123,10 +122,6 @@ actor KnownHostsService {
     }
 
     nonisolated static func canTrustExistingRecordWhenScanFails(storedLines: [String]) -> Bool {
-        !storedLines.isEmpty
-    }
-
-    nonisolated static func canTrustExistingRecordWithoutPreScan(storedLines: [String]) -> Bool {
         !storedLines.isEmpty
     }
 
