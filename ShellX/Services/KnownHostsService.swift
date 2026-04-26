@@ -157,6 +157,17 @@ actor KnownHostsService {
             .path
     }
 
+    nonisolated static func escapedOpenSSHConfigPath(_ path: String) -> String {
+        var escaped = ""
+        for character in path {
+            if character == "\\" || character.isWhitespace {
+                escaped.append("\\")
+            }
+            escaped.append(character)
+        }
+        return escaped
+    }
+
     nonisolated static func temporaryKnownHostsFilePath(for prompt: KnownHostPrompt) throws -> String {
         let fileManager = FileManager.default
         let directoryURL = fileManager.temporaryDirectory

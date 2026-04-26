@@ -372,10 +372,11 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> [String] {
         let forwardedLocaleArguments = forwardedLocaleSSHArguments(environment: environment)
+        let escapedKnownHostsPath = KnownHostsService.escapedOpenSSHConfigPath(userKnownHostsPath)
         var args = [
             "-tt",
             "-p", "\(session.port)",
-            "-o", "UserKnownHostsFile=\(userKnownHostsPath)",
+            "-o", "UserKnownHostsFile=\(escapedKnownHostsPath)",
             "-o", "GlobalKnownHostsFile=/dev/null",
             "-o", "StrictHostKeyChecking=\(strictHostKeyChecking)",
             "-o", "UpdateHostKeys=no"

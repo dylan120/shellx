@@ -201,12 +201,13 @@ final class ScriptBatchExecutionService: @unchecked Sendable {
         userKnownHostsPath: String,
         scriptArguments: [String] = []
     ) -> [String] {
+        let escapedKnownHostsPath = KnownHostsService.escapedOpenSSHConfigPath(userKnownHostsPath)
         var args = [
             "-T",
             "-p", "\(session.port)",
             "-o", "BatchMode=yes",
             "-o", "ConnectTimeout=10",
-            "-o", "UserKnownHostsFile=\(userKnownHostsPath)",
+            "-o", "UserKnownHostsFile=\(escapedKnownHostsPath)",
             "-o", "GlobalKnownHostsFile=/dev/null",
             "-o", "StrictHostKeyChecking=yes",
             "-o", "UpdateHostKeys=no"

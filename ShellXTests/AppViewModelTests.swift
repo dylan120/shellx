@@ -150,6 +150,15 @@ final class AppViewModelTests: XCTestCase {
         XCTAssertFalse(KnownHostsService.canTrustExistingRecordWhenScanFails(storedLines: []))
     }
 
+    func testKnownHostsPathEscapesSpacesForOpenSSHConfig() {
+        let path = "/Users/dev/Library Application Support/ShellX/known_hosts"
+
+        XCTAssertEqual(
+            KnownHostsService.escapedOpenSSHConfigPath(path),
+            "/Users/dev/Library\\ Application\\ Support/ShellX/known_hosts"
+        )
+    }
+
     func testTerminalContentFontPrefersMenloWhenAvailable() {
         let font = TerminalSessionViewModel.terminalContentFont(ofSize: 13)
 
@@ -241,6 +250,25 @@ final class AppViewModelTests: XCTestCase {
         XCTAssertTrue(arguments.contains("SetEnv=LANG=en_US.UTF-8,LC_CTYPE=UTF-8"))
     }
 
+    func testSSHArgumentsEscapeKnownHostsPathWithSpaces() {
+        let session = SSHSessionProfile(
+            name: "path-test",
+            host: "example.com",
+            username: "ops",
+            authMethod: .privateKey
+        )
+
+        let arguments = TerminalSessionViewModel.sshArguments(
+            for: session,
+            userKnownHostsPath: "/Users/dev/Library/Application Support/ShellX/known_hosts",
+            environment: [:]
+        )
+
+        XCTAssertTrue(
+            arguments.contains("UserKnownHostsFile=/Users/dev/Library/Application\\ Support/ShellX/known_hosts")
+        )
+    }
+
     func testAutomaticUpdatePreferenceRoundTrips() {
         let originalValue = ShellXPreferences.automaticUpdatesEnabled
         defer {
@@ -309,6 +337,24 @@ final class AppViewModelTests: XCTestCase {
         XCTAssertEqual(arguments.suffix(2).first, "ops@example.com")
         XCTAssertTrue(arguments.contains("StrictHostKeyChecking=yes"))
         XCTAssertEqual(arguments.last, #"sh -s -- 'prod' 'hello world' 'it'\''s-ok' ''"#)
+    }
+
+    func testBatchScriptSSHArgumentsEscapeKnownHostsPathWithSpaces() {
+        let session = SSHSessionProfile(
+            name: "batch",
+            host: "example.com",
+            username: "ops",
+            authMethod: .privateKey
+        )
+
+        let arguments = ScriptBatchExecutionService.sshArguments(
+            for: session,
+            userKnownHostsPath: "/Users/dev/Library/Application Support/ShellX/known_hosts"
+        )
+
+        XCTAssertTrue(
+            arguments.contains("UserKnownHostsFile=/Users/dev/Library/Application\\ Support/ShellX/known_hosts")
+        )
     }
 
     func testBatchScriptTimeoutDefaultsToOneHour() {
@@ -568,6 +614,24 @@ final class AppViewModelTests: XCTestCase {
         XCTAssertTrue(args.contains("IdentitiesOnly=yes"))
         XCTAssertTrue(args.contains("-i"))
         XCTAssertTrue(args.contains("ops@example.com"))
+    }
+
+    func testSFTPArgumentsEscapeKnownHostsPathWithSpaces() {
+        let session = SSHSessionProfile(
+            name: "prod-sftp",
+            host: "example.com",
+            username: "ops",
+            authMethod: .privateKey
+        )
+
+        let args = SFTPTransferService.sftpArguments(
+            for: session,
+            userKnownHostsPath: "/Users/dev/Library/Application Support/ShellX/known_hosts"
+        )
+
+        XCTAssertTrue(
+            args.contains("UserKnownHostsFile=/Users/dev/Library/Application\\ Support/ShellX/known_hosts")
+        )
     }
 
     func testSFTPCommandScriptUsesRecursivePutForDirectories() {

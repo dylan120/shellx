@@ -149,9 +149,10 @@ final class SFTPTransferService {
         userKnownHostsPath: String,
         strictHostKeyChecking: String = "yes"
     ) -> [String] {
+        let escapedKnownHostsPath = KnownHostsService.escapedOpenSSHConfigPath(userKnownHostsPath)
         var args = [
             "-P", "\(session.port)",
-            "-o", "UserKnownHostsFile=\(userKnownHostsPath)",
+            "-o", "UserKnownHostsFile=\(escapedKnownHostsPath)",
             "-o", "GlobalKnownHostsFile=/dev/null",
             "-o", "StrictHostKeyChecking=\(strictHostKeyChecking)",
             "-o", "UpdateHostKeys=no"
