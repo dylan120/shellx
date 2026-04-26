@@ -109,6 +109,7 @@ final class ShellXTerminalView: TerminalView {
     private var lastSelectionDragEvent: NSEvent?
     private var outsideClickMonitor: Any?
     private var preferencesObserver: Any?
+    private var shouldRevealOutputAfterUserInput = false
     weak var attachedSessionModel: TerminalSessionViewModel?
     var onSelectionChanged: ((Bool) -> Void)?
     var isActiveForInput = false
@@ -177,6 +178,26 @@ final class ShellXTerminalView: TerminalView {
         allowMouseReporting = false
         // 统一在视图层限制终端历史行数，避免高频输出会话持续推高内存占用。
         changeScrollback(ShellXPreferences.terminalScrollbackLines)
+    }
+
+    func prepareForUserInput() {
+        guard isActiveForInput else { return }
+        shouldRevealOutputAfterUserInput = true
+        revealLatestOutputIfNeeded()
+    }
+
+    func feedRemoteOutput(_ data: Data) {
+        feed(byteArray: Array(data)[...])
+        guard shouldRevealOutputAfterUserInput else { return }
+        shouldRevealOutputAfterUserInput = false
+        revealLatestOutputIfNeeded()
+    }
+
+    private func revealLatestOutputIfNeeded() {
+        // 用户在历史区滚动后继续输入命令时，需要回到最新输出；
+        // 否则输出实际已经写到底部，但可视区域仍停在历史位置，看起来像光标和输出错位。
+        guard selectedRange().length == 0, canScroll else { return }
+        scroll(toPosition: 1)
     }
 
     private func updateOutsideClickMonitor(isNeeded: Bool) {

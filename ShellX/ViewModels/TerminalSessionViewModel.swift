@@ -237,7 +237,11 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
     }
 
     private func feed(_ data: Data, to terminalView: TerminalView) {
-        terminalView.feed(byteArray: Array(data)[...])
+        if let shellXTerminalView = terminalView as? ShellXTerminalView {
+            shellXTerminalView.feedRemoteOutput(data)
+        } else {
+            terminalView.feed(byteArray: Array(data)[...])
+        }
     }
 
     private func bufferPendingTerminalOutput(_ data: Data) {
@@ -364,7 +368,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
     static func sshArguments(
         for session: SSHSessionProfile,
         userKnownHostsPath: String,
-        strictHostKeyChecking: String = "no",
+        strictHostKeyChecking: String = "yes",
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> [String] {
         let forwardedLocaleArguments = forwardedLocaleSSHArguments(environment: environment)
@@ -589,7 +593,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
                         session: pendingSession,
                         onConnected: pendingConnectedHandler,
                         knownHostsPathOverride: temporaryKnownHostsPath,
-                        strictHostKeyCheckingOverride: "no"
+                        strictHostKeyCheckingOverride: "yes"
                     )
                 }
             } catch {
@@ -923,7 +927,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
                 arguments: Self.sshArguments(
                     for: session,
                     userKnownHostsPath: knownHostsPath,
-                    strictHostKeyChecking: strictHostKeyCheckingOverride ?? "no"
+                    strictHostKeyChecking: strictHostKeyCheckingOverride ?? "yes"
                 ),
                 password: password,
                 initialWindowSize: currentTerminalWindowSize()
@@ -1233,9 +1237,11 @@ extension TerminalSessionViewModel: TerminalViewDelegate {
 
     nonisolated func send(source: TerminalView, data: ArraySlice<UInt8>) {
         let buffer = Data(data)
-        Task { @MainActor [weak self] in
-            let normalizedBuffer = TerminalKeyInputNormalizer.normalizedTerminalInput(buffer)
-            guard !normalizedBuffer.isEmpty else { return }
+        let normalizedBuffer = TerminalKeyInputNormalizer.normalizedTerminalInput(buffer)
+        guard !normalizedBuffer.isEmpty else { return }
+        let shellXTerminalView = source as? ShellXTerminalView
+        Task { @MainActor [weak self, weak shellXTerminalView] in
+            shellXTerminalView?.prepareForUserInput()
             if normalizedBuffer == Data([0x03]),
                self?.cancelActiveTransferFromKeyboard() == true {
                 return

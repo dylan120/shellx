@@ -39,6 +39,9 @@ jobs:
       - name: Checkout
         # 使用官方 checkout action 获取触发 tag 对应的代码。
         uses: actions/checkout@v4
+        with:
+          # Release Notes 需要基于上一个 tag 到当前 tag 的完整提交范围生成。
+          fetch-depth: 0
 
       # 校验发布 tag 与工程版本，阻止版本号不一致的 Release。
       - name: Validate release version
@@ -78,6 +81,8 @@ jobs:
           ./scripts/build-dmg.sh --unsigned --output-dir ./dist --volume-name "ShellX ${{ steps.release.outputs.tag_name }}"
           # 确认 DMG 资产已生成，避免 gh release 上传不存在的文件。
           test -f "./dist/${{ steps.release.outputs.asset_name }}"
+          # 自动更新客户端要求 Release 同时提供同名 SHA256 校验文件。
+          test -f "./dist/${{ steps.release.outputs.asset_name }}.sha256"
 
       # 创建 GitHub Release，并上传未签名 DMG。
       - name: Create GitHub Release
@@ -92,19 +97,31 @@ jobs:
           # 开启严格模式，Release 创建或资产上传失败都会终止发布。
           set -euo pipefail
 
-          # 先让 GitHub 基于上一个 Release/tag 自动生成本次更新清单，再补一个稳定标题。
-          gh api \
-            -X POST \
-            "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
-            -f tag_name="${{ steps.release.outputs.tag_name }}" \
-            --jq '.body' > release-notes.generated.md
+          tag_name="${{ steps.release.outputs.tag_name }}"
+          previous_tag="$(git tag --sort=-v:refname | awk -v current="${tag_name}" '$0 != current { print; exit }')"
+          if [[ -n "${previous_tag}" ]]; then
+            commit_range="${previous_tag}..${tag_name}"
+            range_description="${previous_tag} → ${tag_name}"
+          else
+            commit_range="${tag_name}"
+            range_description="${tag_name}"
+          fi
 
+          # 按提交历史动态生成本次 Release 的完整提交清单，不写入固定安装说明。
           {
             echo "## 本次更新清单"
             echo
-            cat release-notes.generated.md
+            echo "范围：${range_description}"
+            echo
+            git log --no-merges --reverse --pretty=format:'- %s (`%h`)' "${commit_range}" | sed 's/``` //g'
+            echo
           } > release-notes.md
 
           # 创建以 tag 命名的稳定 Release，上传未签名 DMG。
-          # Release Notes 使用上一步自动生成的本次版本变更清单，避免每次发布重复写入固定安装说明。
-          gh release create "${{ steps.release.outputs.tag_name }}" "./dist/${{ steps.release.outputs.asset_name }}#${{ steps.release.outputs.asset_name }}" --title "ShellX ${{ steps.release.outputs.tag_name }}" --notes-file release-notes.md --verify-tag
+          # Release Notes 只包含本次 tag 相比上一个 tag 的动态提交清单。
+          gh release create "${{ steps.release.outputs.tag_name }}" \
+            "./dist/${{ steps.release.outputs.asset_name }}#${{ steps.release.outputs.asset_name }}" \
+            "./dist/${{ steps.release.outputs.asset_name }}.sha256#${{ steps.release.outputs.asset_name }}.sha256" \
+            --title "ShellX ${{ steps.release.outputs.tag_name }}" \
+            --notes-file release-notes.md \
+            --verify-tag

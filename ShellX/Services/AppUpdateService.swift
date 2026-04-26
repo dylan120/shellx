@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import CryptoKit
 import Foundation
 
 struct AppUpdateRelease: Identifiable, Equatable {
@@ -15,6 +16,14 @@ struct AppUpdateAsset: Equatable {
     let name: String
     let downloadURL: URL
     let size: Int
+    let expectedSHA256: String?
+
+    init(name: String, downloadURL: URL, size: Int, expectedSHA256: String? = nil) {
+        self.name = name
+        self.downloadURL = downloadURL
+        self.size = size
+        self.expectedSHA256 = expectedSHA256
+    }
 }
 
 enum AppUpdatePhase: Equatable {
@@ -157,10 +166,7 @@ final class AppUpdateService: NSObject, ObservableObject {
             throw AppUpdateError.noStableRelease
         }
 
-        guard let asset = release.assets
-            .compactMap(Self.supportedAsset)
-            .sorted(by: Self.preferredAssetOrder)
-            .first else {
+        guard let asset = try await Self.selectedSupportedAsset(from: release.assets) else {
             throw AppUpdateError.noSupportedAsset
         }
 
@@ -191,6 +197,14 @@ final class AppUpdateService: NSObject, ObservableObject {
         asset: AppUpdateAsset,
         release: AppUpdateRelease
     ) throws -> URL {
+        guard let expectedSHA256 = asset.expectedSHA256 else {
+            throw AppUpdateError.noVerifiableAsset
+        }
+        let actualSHA256 = try Self.sha256HexDigest(for: temporaryURL)
+        guard actualSHA256.caseInsensitiveCompare(expectedSHA256) == .orderedSame else {
+            throw AppUpdateError.checksumMismatch(expected: expectedSHA256, actual: actualSHA256)
+        }
+
         let updatesDirectory = try FileManager.default.url(
             for: .applicationSupportDirectory,
             in: .userDomainMask,
@@ -287,22 +301,118 @@ final class AppUpdateService: NSObject, ObservableObject {
         return normalized
     }
 
-    private static func supportedAsset(from asset: GitHubReleaseAssetResponse) -> AppUpdateAsset? {
+    private static func selectedSupportedAsset(from assets: [GitHubReleaseAssetResponse]) async throws -> AppUpdateAsset? {
+        for asset in assets.compactMap(Self.supportedAssetResponse).sorted(by: preferredAssetResponseOrder) {
+            if let digest = normalizedSHA256Digest(asset.digest),
+               let downloadURL = URL(string: asset.browserDownloadURL) {
+                return AppUpdateAsset(
+                    name: asset.name,
+                    downloadURL: downloadURL,
+                    size: asset.size,
+                    expectedSHA256: digest
+                )
+            }
+            if let checksumAsset = matchingChecksumAsset(for: asset, in: assets),
+               let checksum = try await fetchSHA256Checksum(from: checksumAsset),
+               let downloadURL = URL(string: asset.browserDownloadURL) {
+                return AppUpdateAsset(
+                    name: asset.name,
+                    downloadURL: downloadURL,
+                    size: asset.size,
+                    expectedSHA256: checksum
+                )
+            }
+        }
+        return nil
+    }
+
+    private static func supportedAssetResponse(from asset: GitHubReleaseAssetResponse) -> GitHubReleaseAssetResponse? {
         let lowercasedName = asset.name.lowercased()
         guard lowercasedName.hasSuffix(".dmg") || lowercasedName.hasSuffix(".zip") else {
             return nil
         }
         guard let downloadURL = URL(string: asset.browserDownloadURL) else { return nil }
-        return AppUpdateAsset(name: asset.name, downloadURL: downloadURL, size: asset.size)
+        guard isAllowedReleaseDownloadURL(downloadURL) else { return nil }
+        return asset
     }
 
-    private static func preferredAssetOrder(_ lhs: AppUpdateAsset, _ rhs: AppUpdateAsset) -> Bool {
+    private static func preferredAssetResponseOrder(_ lhs: GitHubReleaseAssetResponse, _ rhs: GitHubReleaseAssetResponse) -> Bool {
         let leftIsDMG = lhs.name.lowercased().hasSuffix(".dmg")
         let rightIsDMG = rhs.name.lowercased().hasSuffix(".dmg")
         if leftIsDMG != rightIsDMG {
             return leftIsDMG
         }
         return lhs.name < rhs.name
+    }
+
+    private static func matchingChecksumAsset(
+        for asset: GitHubReleaseAssetResponse,
+        in assets: [GitHubReleaseAssetResponse]
+    ) -> GitHubReleaseAssetResponse? {
+        let candidates = [
+            "\(asset.name).sha256",
+            "\(asset.name).sha256.txt",
+            "\(asset.name).sha256sum"
+        ].map { $0.lowercased() }
+
+        return assets.first { candidates.contains($0.name.lowercased()) }
+    }
+
+    private static func fetchSHA256Checksum(from asset: GitHubReleaseAssetResponse) async throws -> String? {
+        guard let url = URL(string: asset.browserDownloadURL),
+              isAllowedReleaseDownloadURL(url) else { return nil }
+        var request = URLRequest(url: url)
+        request.setValue("text/plain", forHTTPHeaderField: "Accept")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200..<300).contains(httpResponse.statusCode) else {
+            throw AppUpdateError.invalidReleaseResponse
+        }
+        return parseSHA256Checksum(from: String(decoding: data, as: UTF8.self))
+    }
+
+    static func parseSHA256Checksum(from text: String) -> String? {
+        text
+            .split { $0.isWhitespace || $0 == "*" }
+            .map(String.init)
+            .first(where: isSHA256HexDigest)
+    }
+
+    private static func normalizedSHA256Digest(_ digest: String?) -> String? {
+        guard var digest = digest?.trimmingCharacters(in: .whitespacesAndNewlines), !digest.isEmpty else {
+            return nil
+        }
+        if digest.lowercased().hasPrefix("sha256:") {
+            digest.removeFirst("sha256:".count)
+        }
+        return isSHA256HexDigest(digest) ? digest.lowercased() : nil
+    }
+
+    private static func isSHA256HexDigest(_ value: String) -> Bool {
+        let hexDigits = CharacterSet(charactersIn: "0123456789abcdefABCDEF")
+        return value.count == 64 && value.unicodeScalars.allSatisfy { hexDigits.contains($0) }
+    }
+
+    private static func isAllowedReleaseDownloadURL(_ url: URL) -> Bool {
+        guard url.scheme == "https",
+              url.host?.lowercased() == "github.com" else {
+            return false
+        }
+        return url.path.hasPrefix("/dylan120/shellx/releases/download/")
+    }
+
+    private static func sha256HexDigest(for fileURL: URL) throws -> String {
+        let handle = try FileHandle(forReadingFrom: fileURL)
+        defer { try? handle.close() }
+
+        var hasher = SHA256()
+        while true {
+            let data = try handle.read(upToCount: 1024 * 1024) ?? Data()
+            if data.isEmpty { break }
+            hasher.update(data: data)
+        }
+
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
     private static func safeFileComponent(_ value: String) -> String {
@@ -442,6 +552,8 @@ private enum AppUpdateError: LocalizedError {
     case invalidReleaseResponse
     case noStableRelease
     case noSupportedAsset
+    case noVerifiableAsset
+    case checksumMismatch(expected: String, actual: String)
     case invalidCurrentBundle
     case currentBundleLocationNotWritable
 
@@ -452,7 +564,11 @@ private enum AppUpdateError: LocalizedError {
         case .noStableRelease:
             return "未找到稳定版本 Release。"
         case .noSupportedAsset:
-            return "最新 Release 未包含 .dmg 或 .zip 安装包。"
+            return "最新 Release 未包含可校验 SHA256 的 .dmg 或 .zip 安装包。"
+        case .noVerifiableAsset:
+            return "下载的更新包缺少 SHA256 校验信息。"
+        case .checksumMismatch(let expected, let actual):
+            return "更新包 SHA256 校验失败，已阻止安装。期望：\(expected)，实际：\(actual)"
         case .invalidCurrentBundle:
             return "当前运行产物不是可替换的 .app。"
         case .currentBundleLocationNotWritable:
@@ -485,10 +601,12 @@ private struct GitHubReleaseAssetResponse: Decodable {
     let name: String
     let browserDownloadURL: String
     let size: Int
+    let digest: String?
 
     private enum CodingKeys: String, CodingKey {
         case name
         case browserDownloadURL = "browser_download_url"
         case size
+        case digest
     }
 }

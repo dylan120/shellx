@@ -15,7 +15,10 @@ struct SidebarTreeView: View {
     var body: some View {
         List {
             Section {
-                AllSessionsRow()
+                AllSessionsRow(
+                    onAddFolder: onAddSubfolder,
+                    onAddSession: onAddSession
+                )
 
                 ForEach(appModel.rootFolders) { node in
                     FolderBranchView(
@@ -83,6 +86,8 @@ private enum SidebarDragItem {
 
 private struct AllSessionsRow: View {
     @EnvironmentObject private var appModel: AppViewModel
+    let onAddFolder: (SessionFolder?) -> Void
+    let onAddSession: (SessionFolder?) -> Void
 
     var body: some View {
         HStack(spacing: 10) {
@@ -101,6 +106,16 @@ private struct AllSessionsRow: View {
         }
         .onDrop(of: [SidebarDragItem.itemType.identifier], isTargeted: nil) { providers in
             handleDrop(providers, to: nil)
+        }
+        .contextMenu {
+            Button("新建会话") {
+                appModel.selectedFolderID = nil
+                onAddSession(nil)
+            }
+            Button("新建文件夹") {
+                appModel.selectedFolderID = nil
+                onAddFolder(nil)
+            }
         }
         .listRowInsets(EdgeInsets())
     }

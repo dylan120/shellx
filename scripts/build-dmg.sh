@@ -89,6 +89,7 @@ require_command() {
 
 require_command xcodebuild
 require_command hdiutil
+require_command shasum
 
 mkdir -p "$OUTPUT_DIR"
 mkdir -p "$DERIVED_DATA_DIR"
@@ -135,12 +136,14 @@ hdiutil create \
   -ov \
   -format UDZO \
   "$DMG_PATH"
+shasum -a 256 "$DMG_PATH" > "$DMG_PATH.sha256"
 
 rm -rf "$STAGING_DIR"
 
 echo "构建完成："
 echo "  APP: $APP_PATH"
 echo "  DMG: $DMG_PATH"
+echo "  SHA256: $DMG_PATH.sha256"
 if [[ "$USE_UNSIGNED_BUILD" -eq 1 ]]; then
   echo "  签名: 未签名"
 else

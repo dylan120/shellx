@@ -10,6 +10,7 @@ final class ScriptBatchExecutionService: @unchecked Sendable {
 
     // 批量执行只保留最近一段输出，避免大量主机同时返回大日志时占满内存。
     private let maxOutputBytes = 131_072
+    private let knownHostsService = KnownHostsService()
     private let stateLock = NSLock()
     private var runningProcesses: [UUID: Process] = [:]
     private var terminationReasons: [UUID: TerminationReason] = [:]
@@ -30,6 +31,13 @@ final class ScriptBatchExecutionService: @unchecked Sendable {
 
         do {
             let knownHostsPath = try KnownHostsService.defaultKnownHostsFilePath()
+            let trustState = try await knownHostsService.evaluate(host: session.host, port: session.port)
+            guard trustState == .trusted else {
+                return (
+                    .failed("主机指纹尚未信任，请先打开该会话并确认主机指纹后再批量执行脚本。"),
+                    ""
+                )
+            }
             return try await runSSHProcess(
                 scriptContent: script.content,
                 session: session,
@@ -200,7 +208,7 @@ final class ScriptBatchExecutionService: @unchecked Sendable {
             "-o", "ConnectTimeout=10",
             "-o", "UserKnownHostsFile=\(userKnownHostsPath)",
             "-o", "GlobalKnownHostsFile=/dev/null",
-            "-o", "StrictHostKeyChecking=no",
+            "-o", "StrictHostKeyChecking=yes",
             "-o", "UpdateHostKeys=no"
         ]
 

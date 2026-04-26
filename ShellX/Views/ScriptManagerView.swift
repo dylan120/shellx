@@ -4,6 +4,7 @@ import SwiftUI
 struct ScriptManagerView: View {
     @EnvironmentObject private var appModel: AppViewModel
     @State private var draft = UserScript()
+    @State private var showingExpandedEditor = false
 
     var body: some View {
         HSplitView {
@@ -57,6 +58,11 @@ struct ScriptManagerView: View {
                             Text("脚本内容")
                                 .font(.subheadline)
                             Spacer()
+                            Button {
+                                showingExpandedEditor = true
+                            } label: {
+                                Label("全屏查看", systemImage: "arrow.up.left.and.arrow.down.right")
+                            }
                             Picker("语法", selection: $draft.language) {
                                 ForEach(ScriptLanguage.allCases) { language in
                                     Text(language.title).tag(language)
@@ -107,6 +113,13 @@ struct ScriptManagerView: View {
                 draft = selected
             }
         }
+        .sheet(isPresented: $showingExpandedEditor) {
+            ExpandedScriptEditorSheet(
+                title: appModel.selectedScriptID == nil ? "新增脚本" : "编辑脚本",
+                text: $draft.content,
+                language: $draft.language
+            )
+        }
     }
 
     private func select(_ script: UserScript) {
@@ -117,6 +130,43 @@ struct ScriptManagerView: View {
     private func delete(_ script: UserScript) {
         appModel.deleteScript(script)
         draft = appModel.selectedScript ?? UserScript()
+    }
+}
+
+private struct ExpandedScriptEditorSheet: View {
+    let title: String
+    @Binding var text: String
+    @Binding var language: ScriptLanguage
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Text(title)
+                    .font(.title3.weight(.semibold))
+                Spacer()
+                Picker("语法", selection: $language) {
+                    ForEach(ScriptLanguage.allCases) { language in
+                        Text(language.title).tag(language)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .frame(width: 160)
+                Button("完成") {
+                    dismiss()
+                }
+            }
+
+            SyntaxHighlightedScriptEditor(text: $text, language: language)
+                .border(Color(nsColor: .separatorColor))
+
+            Text("脚本会通过系统 ssh 发送到远端 `sh -s` 执行，请避免写入交互式命令。")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .padding(20)
+        .frame(minWidth: 920, minHeight: 680)
     }
 }
 

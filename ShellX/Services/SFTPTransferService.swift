@@ -147,7 +147,7 @@ final class SFTPTransferService {
     static func sftpArguments(
         for session: SSHSessionProfile,
         userKnownHostsPath: String,
-        strictHostKeyChecking: String = "no"
+        strictHostKeyChecking: String = "yes"
     ) -> [String] {
         var args = [
             "-P", "\(session.port)",

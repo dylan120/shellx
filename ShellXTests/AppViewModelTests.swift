@@ -316,6 +316,7 @@ final class AppViewModelTests: XCTestCase {
         )
 
         XCTAssertEqual(arguments.suffix(2).first, "ops@example.com")
+        XCTAssertTrue(arguments.contains("StrictHostKeyChecking=yes"))
         XCTAssertEqual(arguments.last, #"sh -s -- 'prod' 'hello world' 'it'\''s-ok' ''"#)
     }
 
@@ -353,6 +354,13 @@ final class AppViewModelTests: XCTestCase {
         XCTAssertEqual(AppUpdateService.compareVersions("v1.2.1", "1.2.0"), .orderedDescending)
         XCTAssertEqual(AppUpdateService.compareVersions("1.2", "1.2.0"), .orderedSame)
         XCTAssertEqual(AppUpdateService.compareVersions("1.2.0", "1.10.0"), .orderedAscending)
+    }
+
+    func testUpdateChecksumParserAcceptsSha256SidecarFormat() {
+        let checksum = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        let text = "\(checksum)  ShellX-Release.dmg\n"
+
+        XCTAssertEqual(AppUpdateService.parseSHA256Checksum(from: text), checksum)
     }
 
     func testUpdateReadyToRestartStatusPromptsManualRestart() {
@@ -520,7 +528,7 @@ final class AppViewModelTests: XCTestCase {
 
         XCTAssertEqual(args.prefix(3), ["-tt", "-p", "2222"])
         XCTAssertTrue(args.contains("UserKnownHostsFile=/tmp/shellx-known_hosts"))
-        XCTAssertTrue(args.contains("StrictHostKeyChecking=no"))
+        XCTAssertTrue(args.contains("StrictHostKeyChecking=yes"))
         XCTAssertTrue(args.contains("UseKeychain=yes"))
         XCTAssertTrue(args.contains("IdentitiesOnly=yes"))
         XCTAssertTrue(args.contains("-i"))
@@ -564,7 +572,7 @@ final class AppViewModelTests: XCTestCase {
 
         XCTAssertEqual(args.prefix(2), ["-P", "2222"])
         XCTAssertTrue(args.contains("UserKnownHostsFile=/tmp/shellx-known_hosts"))
-        XCTAssertTrue(args.contains("StrictHostKeyChecking=no"))
+        XCTAssertTrue(args.contains("StrictHostKeyChecking=yes"))
         XCTAssertTrue(args.contains("UseKeychain=yes"))
         XCTAssertTrue(args.contains("IdentitiesOnly=yes"))
         XCTAssertTrue(args.contains("-i"))
