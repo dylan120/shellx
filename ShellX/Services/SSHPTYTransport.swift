@@ -152,7 +152,7 @@ final class SSHPTYTransport {
                 // 本机终端应让 SHELL 与实际启动的 shell 保持一致，避免交互命令读到误导性的旧值。
                 setenv("SHELL", shellEnvironmentPath, 1)
             }
-            for (key, value) in localeEnvironment {
+            for (key, value) in Self.terminalProcessEnvironment(localeEnvironment: localeEnvironment) {
                 setenv(key, value, 1)
             }
             chdir(NSHomeDirectory())
@@ -232,6 +232,18 @@ final class SSHPTYTransport {
             ("LANG", "en_US.UTF-8"),
             ("LC_CTYPE", "UTF-8")
         ]
+    }
+
+    static func dockerPlainProgressEnvironment() -> [(String, String)] {
+        [
+            ("BUILDKIT_PROGRESS", "plain"),
+            ("COMPOSE_PROGRESS", "plain")
+        ]
+    }
+
+    private static func terminalProcessEnvironment(localeEnvironment: [(String, String)]) -> [(String, String)] {
+        // Docker/Compose 在 TTY 中默认使用动态进度条，会频繁移动光标；ShellX 终端优先使用纯文本进度。
+        localeEnvironment + dockerPlainProgressEnvironment()
     }
 
     static func normalizedWindowSize(_ proposedSize: (cols: Int, rows: Int)?) -> (cols: Int, rows: Int) {

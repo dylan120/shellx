@@ -332,10 +332,10 @@ final class AppViewModel: ObservableObject {
                 if session.passwordStoredInKeychain, !submission.password.isEmpty {
                     try passwordStore.savePassword(submission.password, for: session.id)
                 } else if !session.passwordStoredInKeychain {
-                    try passwordStore.deletePassword(for: session.id)
+                    try passwordStore.deletePassword(for: session.id, reason: "session.passwordStorageDisabled")
                 }
             case .sshAgent, .privateKey:
-                try passwordStore.deletePassword(for: session.id)
+                try passwordStore.deletePassword(for: session.id, reason: "session.authMethodChanged.\(session.authMethod.rawValue)")
             }
         } catch {
             errorMessage = "保存会话密码失败：\(error.localizedDescription)"
@@ -393,7 +393,7 @@ final class AppViewModel: ObservableObject {
         sessions.removeAll { $0.id == session.id }
         closeTerminals(forSessionID: session.id)
         do {
-            try passwordStore.deletePassword(for: session.id)
+            try passwordStore.deletePassword(for: session.id, reason: "session.deleted")
         } catch {
             errorMessage = "删除会话密码失败：\(error.localizedDescription)"
         }

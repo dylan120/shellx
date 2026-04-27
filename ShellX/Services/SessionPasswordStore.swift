@@ -86,15 +86,15 @@ final class SessionPasswordStore {
         (try? loadPassword(for: sessionID)) != nil
     }
 
-    func deletePassword(for sessionID: UUID) throws {
+    func deletePassword(for sessionID: UUID, reason: String = "unspecified") throws {
         Self.cachedPasswords.removeValue(forKey: sessionID)
-        Self.recordDiagnostic("deletePassword.begin", sessionID: sessionID)
+        Self.recordDiagnostic("deletePassword.begin reason=\(reason)", sessionID: sessionID)
         let status = SecItemDelete(baseQuery(for: sessionID.uuidString) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
-            Self.recordDiagnostic("deletePassword.failure.\(status)", sessionID: sessionID)
+            Self.recordDiagnostic("deletePassword.failure.\(status) reason=\(reason)", sessionID: sessionID)
             throw PasswordStoreError.keychain(status)
         }
-        Self.recordDiagnostic("deletePassword.success.\(status)", sessionID: sessionID)
+        Self.recordDiagnostic("deletePassword.success.\(status) reason=\(reason)", sessionID: sessionID)
     }
 
     static func debugSnapshot() -> String {

@@ -116,6 +116,7 @@ struct SessionEditorSheet: View {
                         Button("添加") {
                             appendTagFromDraft()
                         }
+                        .buttonStyle(.bordered)
                         .disabled(tagDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
 
@@ -145,6 +146,7 @@ struct SessionEditorSheet: View {
                     dismiss()
                 }
                 Button("保存") {
+                    appendTagFromDraft()
                     var session = draft
                     if session.authMethod != .password {
                         session.passwordStoredInKeychain = false
@@ -197,13 +199,23 @@ struct SessionEditorSheet: View {
         return "关闭后，SSH 和 SFTP 在需要密码时都会提示你手动输入一次；密码不会写入 ShellX 的 sessions.json。"
     }
 
-    private func appendTagFromDraft() {
-        let trimmedTag = tagDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedTag.isEmpty else { return }
-        if !draft.tags.contains(trimmedTag) {
-            draft.tags.append(trimmedTag)
+    static func tagsByAppendingDraft(_ draftTag: String, to tags: [String]) -> (tags: [String], draftTag: String) {
+        let trimmedTag = draftTag.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTag.isEmpty else {
+            return (tags, draftTag)
         }
-        tagDraft = ""
+
+        var updatedTags = tags
+        if !updatedTags.contains(trimmedTag) {
+            updatedTags.append(trimmedTag)
+        }
+        return (updatedTags, "")
+    }
+
+    private func appendTagFromDraft() {
+        let updated = Self.tagsByAppendingDraft(tagDraft, to: draft.tags)
+        draft.tags = updated.tags
+        tagDraft = updated.draftTag
     }
 
     private func removeTag(_ tag: String) {

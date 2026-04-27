@@ -180,6 +180,67 @@ final class AppViewModelTests: XCTestCase {
         XCTAssertTrue(message.contains("Permission denied"))
     }
 
+    func testPasswordTerminalExitFailureExplainsPublicKeyOnlyServer() {
+        let session = SSHSessionProfile(
+            name: "password-session",
+            host: "example.com",
+            username: "root",
+            authMethod: .password,
+            passwordStoredInKeychain: true
+        )
+
+        let message = TerminalSessionViewModel.terminalExitFailureMessage(
+            title: "SSH 控制台",
+            exitCode: 255,
+            debugSnapshot: "root@example.com: Permission denied (publickey).\n",
+            session: session
+        )
+
+        XCTAssertTrue(message.contains("当前会话配置为账号密码"))
+        XCTAssertTrue(message.contains("远端 SSH 服务没有接受密码认证"))
+        XCTAssertTrue(message.contains("PasswordAuthentication"))
+    }
+
+    func testPrivateKeyTerminalExitFailureDoesNotShowPasswordAuthHint() {
+        let session = SSHSessionProfile(
+            name: "key-session",
+            host: "example.com",
+            username: "root",
+            authMethod: .privateKey,
+            privateKeyPath: "~/.ssh/id_ed25519"
+        )
+
+        let message = TerminalSessionViewModel.terminalExitFailureMessage(
+            title: "SSH 控制台",
+            exitCode: 255,
+            debugSnapshot: "root@example.com: Permission denied (publickey).\n",
+            session: session
+        )
+
+        XCTAssertFalse(message.contains("当前会话配置为账号密码"))
+    }
+
+    func testSessionEditorAppendsTrimmedTagDraft() {
+        let result = SessionEditorSheet.tagsByAppendingDraft("  prod  ", to: ["api"])
+
+        XCTAssertEqual(result.tags, ["api", "prod"])
+        XCTAssertEqual(result.draftTag, "")
+    }
+
+    func testSessionEditorKeepsEmptyTagDraftUnchanged() {
+        let result = SessionEditorSheet.tagsByAppendingDraft("   ", to: ["api"])
+
+        XCTAssertEqual(result.tags, ["api"])
+        XCTAssertEqual(result.draftTag, "   ")
+    }
+
+    func testSessionEditorDoesNotDuplicateTagDraft() {
+        let result = SessionEditorSheet.tagsByAppendingDraft("api", to: ["api"])
+
+        XCTAssertEqual(result.tags, ["api"])
+        XCTAssertEqual(result.draftTag, "")
+    }
+
     func testAppearancePreferenceRoundTripsSupportedModes() {
         let originalValue = ShellXPreferences.appearanceMode
         defer {
@@ -246,8 +307,21 @@ final class AppViewModelTests: XCTestCase {
             environment: [:]
         )
 
-        XCTAssertTrue(arguments.contains("SendEnv=LANG LC_*"))
-        XCTAssertTrue(arguments.contains("SetEnv=LANG=en_US.UTF-8,LC_CTYPE=UTF-8"))
+        XCTAssertTrue(arguments.contains("SendEnv=LANG LC_* BUILDKIT_PROGRESS COMPOSE_PROGRESS"))
+        XCTAssertTrue(
+            arguments.contains("SetEnv=LANG=en_US.UTF-8,LC_CTYPE=UTF-8,BUILDKIT_PROGRESS=plain,COMPOSE_PROGRESS=plain")
+        )
+    }
+
+    func testTerminalProcessRequestsPlainDockerProgress() {
+        XCTAssertEqual(
+            SSHPTYTransport.dockerPlainProgressEnvironment().map(\.0),
+            ["BUILDKIT_PROGRESS", "COMPOSE_PROGRESS"]
+        )
+        XCTAssertEqual(
+            SSHPTYTransport.dockerPlainProgressEnvironment().map(\.1),
+            ["plain", "plain"]
+        )
     }
 
     func testSSHArgumentsEscapeKnownHostsPathWithSpaces() {
@@ -398,6 +472,16 @@ final class AppViewModelTests: XCTestCase {
         let text = "\(checksum)  ShellX-Release.dmg\n"
 
         XCTAssertEqual(AppUpdateService.parseSHA256Checksum(from: text), checksum)
+    }
+
+    func testUpdateInstallerValidatesStagedAppBeforeReplacingCurrentApp() {
+        let script = AppUpdateService.installerScript
+
+        XCTAssertTrue(script.contains("validate_app \"$SOURCE_APP\""))
+        XCTAssertTrue(script.contains("validate_app \"$STAGED_APP\""))
+        XCTAssertTrue(script.contains("mv \"$APP_PATH\" \"$BACKUP_APP\""))
+        XCTAssertTrue(script.contains("mv \"$BACKUP_APP\" \"$APP_PATH\""))
+        XCTAssertTrue(script.contains("CFBundleExecutable"))
     }
 
     func testUpdateReadyToRestartStatusPromptsManualRestart() {

@@ -371,7 +371,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         strictHostKeyChecking: String = "yes",
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> [String] {
-        let forwardedLocaleArguments = forwardedLocaleSSHArguments(environment: environment)
+        let forwardedEnvironmentArguments = forwardedSSHEnvironmentArguments(environment: environment)
         let escapedKnownHostsPath = KnownHostsService.escapedOpenSSHConfigPath(userKnownHostsPath)
         var args = [
             "-tt",
@@ -381,7 +381,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
             "-o", "StrictHostKeyChecking=\(strictHostKeyChecking)",
             "-o", "UpdateHostKeys=no"
         ]
-        args.append(contentsOf: forwardedLocaleArguments)
+        args.append(contentsOf: forwardedEnvironmentArguments)
         if session.authMethod == .privateKey {
             let privateKeyPath = session.privateKeyPath.trimmingCharacters(in: .whitespacesAndNewlines)
             if !privateKeyPath.isEmpty {
@@ -405,10 +405,10 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         return args
     }
 
-    private static func forwardedLocaleSSHArguments(
+    private static func forwardedSSHEnvironmentArguments(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> [String] {
-        func sanitizedLocaleValue(for key: String) -> String? {
+        func sanitizedSetEnvValue(for key: String) -> String? {
             guard let rawValue = environment[key] else { return nil }
             let trimmedValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmedValue.isEmpty else { return nil }
@@ -418,12 +418,15 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
                 .replacingOccurrences(of: ",", with: "")
         }
 
-        let preferredLANG = sanitizedLocaleValue(for: "LANG") ?? "en_US.UTF-8"
-        let preferredLCTYPE = sanitizedLocaleValue(for: "LC_CTYPE") ?? "UTF-8"
+        let preferredLANG = sanitizedSetEnvValue(for: "LANG") ?? "en_US.UTF-8"
+        let preferredLCTYPE = sanitizedSetEnvValue(for: "LC_CTYPE") ?? "UTF-8"
+        let dockerProgressEnvironment = SSHPTYTransport.dockerPlainProgressEnvironment()
+            .map { "\($0.0)=\(sanitizedSetEnvValue(for: $0.0) ?? $0.1)" }
+            .joined(separator: ",")
 
         return [
-            "-o", "SendEnv=LANG LC_*",
-            "-o", "SetEnv=LANG=\(preferredLANG),LC_CTYPE=\(preferredLCTYPE)"
+            "-o", "SendEnv=LANG LC_* BUILDKIT_PROGRESS COMPOSE_PROGRESS",
+            "-o", "SetEnv=LANG=\(preferredLANG),LC_CTYPE=\(preferredLCTYPE),\(dockerProgressEnvironment)"
         ]
     }
 
@@ -436,6 +439,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
     }
 
     func transportDidTerminate(exitCode: Int32?) {
+        let terminatedSession = activeSession
         startedSessionID = nil
         activeSession = nil
         workingDirectory = nil
@@ -467,7 +471,8 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
             let message = Self.terminalExitFailureMessage(
                 title: runtimeKind?.defaultTitle ?? "终端",
                 exitCode: exitCode,
-                debugSnapshot: terminalDebugSnapshot
+                debugSnapshot: terminalDebugSnapshot,
+                session: terminatedSession
             )
             connectionState = .failed(message)
             lastExitMessage = message
@@ -560,12 +565,18 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         terminalDebugSnapshot = ""
     }
 
-    static func terminalExitFailureMessage(title: String, exitCode: Int32, debugSnapshot: String) -> String {
+    static func terminalExitFailureMessage(
+        title: String,
+        exitCode: Int32,
+        debugSnapshot: String,
+        session: SSHSessionProfile? = nil
+    ) -> String {
         let baseMessage = "\(title)退出，退出码 \(exitCode)"
         guard let detail = terminalFailureDetail(from: debugSnapshot) else {
             return baseMessage
         }
-        return "\(baseMessage)\n\n最近终端输出：\n\(detail)"
+        let authHint = terminalAuthenticationHint(from: detail, session: session)
+        return "\(baseMessage)\(authHint)\n\n最近终端输出：\n\(detail)"
     }
 
     private static func terminalFailureDetail(from debugSnapshot: String) -> String? {
@@ -576,6 +587,18 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
 
         guard !lines.isEmpty else { return nil }
         return lines.suffix(12).joined(separator: "\n")
+    }
+
+    private static func terminalAuthenticationHint(from detail: String, session: SSHSessionProfile?) -> String {
+        guard session?.authMethod == .password else { return "" }
+        let normalizedDetail = detail.lowercased()
+
+        // OpenSSH 在服务端只允许公钥时，即使客户端选择账号密码认证，也会返回 publickey。
+        if normalizedDetail.contains("permission denied (publickey)") {
+            return "\n\n认证提示：当前会话配置为账号密码，但远端 SSH 服务没有接受密码认证，返回只允许 publickey。请检查服务器 sshd_config 是否允许 PasswordAuthentication 或改用私钥认证。"
+        }
+
+        return ""
     }
 
     func trustCurrentHostAndContinue() {

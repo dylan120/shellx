@@ -182,6 +182,16 @@ sudo xattr -cr /Applications/ShellX.app
 open /Applications/ShellX.app
 ```
 
+如果 macOS 提示“应用程序无法打开。-50”，先确认 `.app` bundle 没有在安装或更新时损坏：
+
+```bash
+test -f /Applications/ShellX.app/Contents/Info.plist
+/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' /Applications/ShellX.app/Contents/Info.plist
+ls -l /Applications/ShellX.app/Contents/MacOS/
+```
+
+若 `Info.plist` 或 `Contents/MacOS/ShellX` 缺失，请重新从 dmg 拖拽安装；若文件存在但仍打不开，再执行上面的 `codesign` 和 `xattr` 修复命令。
+
 如果只想先做最小放行，也可以只移除隔离属性：
 
 ```bash

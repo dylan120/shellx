@@ -422,7 +422,7 @@ final class AppUpdateService: NSObject, ObservableObject {
             .joined()
     }
 
-    private static let installerScript = """
+    static let installerScript = """
 #!/bin/bash
 set -euo pipefail
 
@@ -433,6 +433,8 @@ APP_PID="$4"
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/shellx-update.XXXXXX")"
 MOUNT_DIR="$WORK_DIR/mount"
 EXTRACT_DIR="$WORK_DIR/extract"
+STAGED_APP="$WORK_DIR/$APP_NAME.app"
+BACKUP_APP="$WORK_DIR/$APP_NAME.previous.app"
 
 cleanup() {
   if mount | grep -q "$MOUNT_DIR"; then
@@ -448,6 +450,23 @@ done
 
 find_app() {
   find "$1" -maxdepth 3 -name "$APP_NAME.app" -type d -print -quit
+}
+
+validate_app() {
+  local candidate="$1"
+  local info_plist="$candidate/Contents/Info.plist"
+  local executable_name
+
+  if [ ! -d "$candidate" ] || [ ! -f "$info_plist" ]; then
+    echo "Invalid app bundle: $candidate" >&2
+    return 1
+  fi
+
+  executable_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$info_plist" 2>/dev/null || true)"
+  if [ -z "$executable_name" ] || [ ! -x "$candidate/Contents/MacOS/$executable_name" ]; then
+    echo "Invalid app executable: $candidate/Contents/MacOS/$executable_name" >&2
+    return 1
+  fi
 }
 
 mkdir -p "$MOUNT_DIR" "$EXTRACT_DIR"
@@ -478,8 +497,29 @@ if [ -n "$OLD_BUNDLE_ID" ] && [ "$OLD_BUNDLE_ID" != "$NEW_BUNDLE_ID" ]; then
   exit 4
 fi
 
-rm -rf "$APP_PATH"
-ditto "$SOURCE_APP" "$APP_PATH"
+validate_app "$SOURCE_APP"
+ditto "$SOURCE_APP" "$STAGED_APP"
+validate_app "$STAGED_APP"
+
+if [ -d "$APP_PATH" ]; then
+  mv "$APP_PATH" "$BACKUP_APP"
+fi
+
+if ! ditto "$STAGED_APP" "$APP_PATH"; then
+  rm -rf "$APP_PATH"
+  if [ -d "$BACKUP_APP" ]; then
+    mv "$BACKUP_APP" "$APP_PATH"
+  fi
+  exit 5
+fi
+
+if ! validate_app "$APP_PATH"; then
+  rm -rf "$APP_PATH"
+  if [ -d "$BACKUP_APP" ]; then
+    mv "$BACKUP_APP" "$APP_PATH"
+  fi
+  exit 6
+fi
 
 # 未签名构建通过自动更新落盘后，macOS 可能保留下载隔离属性，导致下次启动被 Gatekeeper 拦截。
 # GUI 自动更新流程不能交互式输入 sudo 密码，因此这里只执行当前用户权限下可完成的本机修复；失败不阻断安装。
@@ -487,7 +527,10 @@ ditto "$SOURCE_APP" "$APP_PATH"
 /usr/bin/codesign --force --deep --sign - "$APP_PATH" >/dev/null 2>&1 || true
 /usr/bin/xattr -dr com.apple.quarantine "$APP_PATH" >/dev/null 2>&1 || true
 
-open "$APP_PATH"
+if ! open "$APP_PATH"; then
+  echo "Failed to open updated app: $APP_PATH" >&2
+  exit 7
+fi
 """
 }
 
