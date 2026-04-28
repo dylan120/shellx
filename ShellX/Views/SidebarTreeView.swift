@@ -14,7 +14,7 @@ struct SidebarTreeView: View {
 
     var body: some View {
         List {
-            Section {
+            Section("会话") {
                 AllSessionsRow(
                     onAddFolder: onAddSubfolder,
                     onAddSession: onAddSession
@@ -48,6 +48,20 @@ struct SidebarTreeView: View {
         .listStyle(.sidebar)
         .scrollContentBackground(.hidden)
         .background(sidebarBackgroundColor)
+        .safeAreaInset(edge: .top) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("ShellX")
+                    .font(.title3.weight(.semibold))
+                Text("\(appModel.filteredSessions.count) 个可见会话")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.top, 10)
+            .padding(.bottom, 8)
+            .background(sidebarBackgroundColor)
+        }
     }
 
     private var sidebarBackgroundColor: Color {
@@ -91,14 +105,21 @@ private struct AllSessionsRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Label("全部会话", systemImage: "tray.full")
+            Image(systemName: "tray.full")
+                .foregroundStyle(.secondary)
+                .frame(width: 18)
+            Text("全部会话")
+                .font(.callout.weight(appModel.selectedFolderID == nil ? .semibold : .regular))
             Spacer(minLength: 8)
             Text("\(appModel.filteredSessions.count)")
+                .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
-                .font(.caption)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 2)
+                .background(Color.secondary.opacity(0.10), in: Capsule())
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .padding(.vertical, 7)
         .contentShape(Rectangle())
         .onTapGesture {
             appModel.selectedFolderID = nil
@@ -118,6 +139,11 @@ private struct AllSessionsRow: View {
             }
         }
         .listRowInsets(EdgeInsets())
+        .listRowBackground(rowBackground(isSelected: appModel.selectedFolderID == nil))
+    }
+
+    private func rowBackground(isSelected: Bool) -> Color {
+        isSelected ? Color.accentColor.opacity(0.14) : .clear
     }
 
     private func handleDrop(_ providers: [NSItemProvider], to folderID: UUID?) -> Bool {
@@ -185,14 +211,20 @@ private struct FolderBranchView: View {
             HStack(spacing: 10) {
                 Image(systemName: "folder.fill")
                     .foregroundStyle(.green)
+                    .frame(width: 18)
                 Text(node.folder.name)
+                    .font(.callout.weight(appModel.selectedFolderID == node.folder.id ? .semibold : .regular))
+                    .lineLimit(1)
                 Spacer(minLength: 8)
                 Text("\(appModel.sessions(in: node.folder.id).count)")
+                    .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
-                    .font(.caption)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(Color.secondary.opacity(0.10), in: Capsule())
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            .padding(.vertical, 7)
             .contentShape(Rectangle())
             .onTapGesture {
                 appModel.selectedFolderID = node.folder.id
@@ -221,7 +253,12 @@ private struct FolderBranchView: View {
                 }
             }
             .listRowInsets(EdgeInsets())
+            .listRowBackground(rowBackground(isSelected: appModel.selectedFolderID == node.folder.id))
         }
+    }
+
+    private func rowBackground(isSelected: Bool) -> Color {
+        isSelected ? Color.accentColor.opacity(0.14) : .clear
     }
 
     private func handleDrop(_ providers: [NSItemProvider], to folderID: UUID?) -> Bool {
@@ -246,17 +283,34 @@ private struct SessionTreeRow: View {
     let onDeleteSession: (SSHSessionProfile) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(session.name)
-                .font(.body)
-                .lineLimit(1)
-            Text("\(session.destination):\(session.port)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+        HStack(spacing: 10) {
+            Image(systemName: iconName)
+                .foregroundStyle(iconColor)
+                .frame(width: 18)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(session.name)
+                    .font(.callout.weight(appModel.selectedSessionID == session.id ? .semibold : .regular))
+                    .lineLimit(1)
+                Text("\(session.destination):\(session.port)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 0)
+
+            if !session.tags.isEmpty {
+                Text(session.tags[0])
+                    .font(.caption2)
+                    .lineLimit(1)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.accentColor.opacity(0.10), in: Capsule())
+            }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .padding(.vertical, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         // 双击需要优先识别，否则 macOS List 中单击选择可能抢先消费点击事件。
@@ -282,6 +336,21 @@ private struct SessionTreeRow: View {
         }
         .listRowInsets(EdgeInsets())
         .listRowBackground(rowBackground(isSelected: appModel.selectedSessionID == session.id))
+    }
+
+    private var iconName: String {
+        switch session.authMethod {
+        case .sshAgent:
+            return "key.horizontal"
+        case .privateKey:
+            return "doc.text"
+        case .password:
+            return "lock"
+        }
+    }
+
+    private var iconColor: Color {
+        appModel.selectedSessionID == session.id ? .accentColor : .secondary
     }
 
     private func rowBackground(isSelected: Bool) -> Color {

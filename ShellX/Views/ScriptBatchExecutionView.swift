@@ -168,19 +168,16 @@ struct ScriptBatchExecutionView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 12) {
-                Picker("脚本", selection: $runner.selectedScriptID) {
-                    Text("请选择脚本").tag(Optional<UUID>.none)
-                    ForEach(appModel.scripts) { script in
-                        Text(script.name).tag(Optional(script.id))
-                    }
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("批量执行脚本")
+                        .font(.title2.weight(.semibold))
+                    Text(executionSummary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                .frame(width: 320)
 
                 Spacer()
-
-                Text("已选择 \(runner.selectedSessionIDs.count) 个会话")
-                    .foregroundStyle(.secondary)
 
                 Button("全选") {
                     runner.selectAll(appModel.sessions)
@@ -207,48 +204,84 @@ struct ScriptBatchExecutionView: View {
                 } label: {
                     Label("批量执行", systemImage: "play.fill")
                 }
+                .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
                 .disabled(!canRun)
             }
 
-            VStack(alignment: .leading, spacing: 6) {
-                TextField("执行参数，例如：prod \"hello world\" --force", text: $runner.argumentText)
-                    .disabled(runner.isRunning)
-                if let argumentValidationMessage = runner.argumentValidationMessage {
-                    Text(argumentValidationMessage)
+            ShellXSection("执行配置") {
+                HStack(spacing: 12) {
+                    Picker("脚本", selection: $runner.selectedScriptID) {
+                        Text("请选择脚本").tag(Optional<UUID>.none)
+                        ForEach(appModel.scripts) { script in
+                            Text(script.name).tag(Optional(script.id))
+                        }
+                    }
+                    .frame(width: 320)
+
+                    ShellXStatusPill(
+                        title: "已选择 \(runner.selectedSessionIDs.count) 个会话",
+                        systemImage: "checklist",
+                        color: runner.selectedSessionIDs.isEmpty ? .secondary : .accentColor
+                    )
+
+                    Spacer()
+
+                    HStack(spacing: 6) {
+                        Text("超时")
+                            .foregroundStyle(.secondary)
+                        TextField("3600", text: $runner.timeoutText)
+                            .frame(width: 96)
+                            .disabled(runner.isRunning)
+                        Text("秒")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    TextField("执行参数，例如：prod \"hello world\" --force", text: $runner.argumentText)
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(runner.isRunning)
+                    if let argumentValidationMessage = runner.argumentValidationMessage {
+                        Text(argumentValidationMessage)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                    } else {
+                        Text("参数会传给远端 `sh -s --`，脚本中可通过 `$1`、`$2`、`$@` 读取。")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if let timeoutValidationMessage = runner.timeoutValidationMessage {
+                    Text(timeoutValidationMessage)
                         .font(.footnote)
                         .foregroundStyle(.red)
                 } else {
-                    Text("参数会传给远端 `sh -s --`，脚本中可通过 `$1`、`$2`、`$@` 读取。")
+                    Text("单台主机脚本执行超过设定时间会自动终止，默认 3600 秒。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
             }
+            .disabled(runner.isRunning)
 
-            HStack(spacing: 12) {
-                Text("超时")
-                    .foregroundStyle(.secondary)
-                TextField("3600", text: $runner.timeoutText)
-                    .frame(width: 96)
-                    .disabled(runner.isRunning)
-                Text("秒")
-                    .foregroundStyle(.secondary)
-                Spacer()
-            }
-            if let timeoutValidationMessage = runner.timeoutValidationMessage {
-                Text(timeoutValidationMessage)
-                    .font(.footnote)
-                    .foregroundStyle(.red)
-            } else {
-                Text("单台主机脚本执行超过设定时间会自动终止，默认 3600 秒。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+            if !runner.results.isEmpty {
+                HStack(spacing: 8) {
+                    ForEach(statusSummary, id: \.title) { item in
+                        ShellXStatusPill(title: item.title, systemImage: item.icon, color: item.color)
+                    }
+                    Spacer()
+                }
             }
 
             HSplitView {
-                SessionScriptSelectionTree(selectedSessionIDs: $runner.selectedSessionIDs)
-                    .environmentObject(appModel)
-                    .frame(minWidth: 280)
+                ShellXSection("目标会话") {
+                    SessionScriptSelectionTree(selectedSessionIDs: $runner.selectedSessionIDs)
+                        .environmentObject(appModel)
+                        .frame(minWidth: 280)
+                }
+                .frame(minWidth: 300)
+                .disabled(runner.isRunning)
 
                 VStack(spacing: 0) {
                     ScriptExecutionResultList(
@@ -263,10 +296,16 @@ struct ScriptBatchExecutionView: View {
                     ScriptExecutionOutputView(result: runner.selectedResult)
                 }
                 .frame(minWidth: 620)
+                .background(ShellXUI.sectionBackground, in: RoundedRectangle(cornerRadius: ShellXUI.sectionCornerRadius))
+                .overlay {
+                    RoundedRectangle(cornerRadius: ShellXUI.sectionCornerRadius)
+                        .strokeBorder(ShellXUI.separator.opacity(0.65), lineWidth: 1)
+                }
             }
         }
         .padding(16)
         .frame(minWidth: 980, minHeight: 640)
+        .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
             runner.selectedScriptID = runner.selectedScriptID ?? appModel.selectedScriptID ?? appModel.scripts.first?.id
         }
@@ -279,6 +318,35 @@ struct ScriptBatchExecutionView: View {
             runner.argumentValidationMessage == nil &&
             runner.timeoutValidationMessage == nil
     }
+
+    private var executionSummary: String {
+        if runner.results.isEmpty {
+            return "选择脚本和目标会话后执行，最多同时运行 6 台主机。"
+        }
+        return statusSummary.map(\.title).joined(separator: " · ")
+    }
+
+    private var statusSummary: [ScriptStatusSummaryItem] {
+        let pending = runner.results.filter { $0.status == .pending }.count
+        let running = runner.results.filter { $0.status == .running }.count
+        let succeeded = runner.results.filter { $0.status == .succeeded }.count
+        let failed = runner.results.filter {
+            if case .failed = $0.status { return true }
+            return false
+        }.count
+        return [
+            ScriptStatusSummaryItem(title: "等待 \(pending)", icon: "clock", color: .secondary),
+            ScriptStatusSummaryItem(title: "运行 \(running)", icon: "arrow.triangle.2.circlepath", color: .orange),
+            ScriptStatusSummaryItem(title: "成功 \(succeeded)", icon: "checkmark.circle.fill", color: .green),
+            ScriptStatusSummaryItem(title: "失败 \(failed)", icon: "xmark.octagon.fill", color: .red)
+        ]
+    }
+}
+
+private struct ScriptStatusSummaryItem {
+    let title: String
+    let icon: String
+    let color: Color
 }
 
 private struct SessionScriptSelectionTree: View {
@@ -287,7 +355,7 @@ private struct SessionScriptSelectionTree: View {
 
     var body: some View {
         List {
-            Section {
+            Section("全部会话树") {
                 ForEach(appModel.rootFolders) { node in
                     ScriptFolderSelectionBranch(
                         node: node,
@@ -302,11 +370,11 @@ private struct SessionScriptSelectionTree: View {
                         onToggle: { toggle(session.id) }
                     )
                 }
-            } header: {
-                Text("全部会话树")
             }
         }
         .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
+        .background(Color.clear)
     }
 
     private func toggle(_ sessionID: UUID) {
@@ -363,8 +431,11 @@ private struct ScriptFolderSelectionBranch: View {
                 Text(node.folder.name)
                 Spacer()
                 Text("\(folderSessions.count)")
-                    .font(.caption)
+                    .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(Color.secondary.opacity(0.10), in: Capsule())
             }
         }
     }
@@ -415,13 +486,16 @@ private struct ScriptExecutionResultList: View {
             ForEach(results) { result in
                 HStack(spacing: 10) {
                     Image(systemName: iconName(for: result.status))
-                        .foregroundStyle(color(for: result.status))
+                        .foregroundStyle(ShellXUI.scriptStatusColor(result.status))
                     Text(result.sessionName)
                         .lineLimit(1)
                     Spacer()
                     Text(result.status.title)
                         .font(.caption)
-                        .foregroundStyle(color(for: result.status))
+                        .foregroundStyle(ShellXUI.scriptStatusColor(result.status))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(ShellXUI.scriptStatusColor(result.status).opacity(0.10), in: Capsule())
                 }
                 .padding(.vertical, 4)
                 .tag(Optional(result.id))
@@ -435,6 +509,8 @@ private struct ScriptExecutionResultList: View {
             }
         }
         .frame(minHeight: 240)
+        .scrollContentBackground(.hidden)
+        .background(Color.clear)
     }
 
     private func iconName(for status: ScriptExecutionStatus) -> String {
@@ -450,18 +526,6 @@ private struct ScriptExecutionResultList: View {
         }
     }
 
-    private func color(for status: ScriptExecutionStatus) -> Color {
-        switch status {
-        case .pending:
-            return .secondary
-        case .running:
-            return .orange
-        case .succeeded:
-            return .green
-        case .failed:
-            return .red
-        }
-    }
 }
 
 private struct ScriptExecutionOutputView: View {
@@ -486,8 +550,11 @@ private struct ScriptExecutionOutputView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(10)
             }
-            .background(Color(nsColor: .textBackgroundColor))
-            .border(Color(nsColor: .separatorColor))
+            .background(ShellXUI.subtleBackground, in: RoundedRectangle(cornerRadius: ShellXUI.controlCornerRadius))
+            .overlay {
+                RoundedRectangle(cornerRadius: ShellXUI.controlCornerRadius)
+                    .strokeBorder(ShellXUI.separator.opacity(0.8), lineWidth: 1)
+            }
         }
         .padding(12)
         .frame(minHeight: 260)
@@ -502,16 +569,7 @@ private struct ScriptExecutionOutputView: View {
     }
 
     private func statusColor(_ status: ScriptExecutionStatus) -> Color {
-        switch status {
-        case .pending:
-            return .secondary
-        case .running:
-            return .orange
-        case .succeeded:
-            return .green
-        case .failed:
-            return .red
-        }
+        ShellXUI.scriptStatusColor(status)
     }
 }
 

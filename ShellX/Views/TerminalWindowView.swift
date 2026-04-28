@@ -68,9 +68,10 @@ struct TerminalWindowView: View {
             }
             .background(Color(nsColor: .textBackgroundColor))
 
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 Label(sessionModel.terminalTitle, systemImage: "terminal")
-                    .font(.subheadline.weight(.medium))
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
                 if let session {
                     HStack(spacing: 6) {
                         Text("\(session.destination):\(session.port)")
@@ -97,6 +98,9 @@ struct TerminalWindowView: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .foregroundStyle(.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.secondary.opacity(0.08), in: Capsule())
                 }
                 if let session, !session.tags.isEmpty {
                     SessionTerminalTagStrip(tags: session.tags)
@@ -108,13 +112,17 @@ struct TerminalWindowView: View {
                         .foregroundStyle(sessionModel.footerTransferIsError ? Color.red : .secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background((sessionModel.footerTransferIsError ? Color.red : Color.accentColor).opacity(0.10), in: Capsule())
                 }
                 if case .failed = sessionModel.connectionState,
                    let errorMessage = sessionModel.lastExitMessage ?? failureMessage {
                     Button {
                         showingErrorDetails = true
                     } label: {
-                        Text(sessionModel.connectionState.displayText)
+                        Label(sessionModel.connectionState.displayText, systemImage: statusIcon)
+                            .font(.caption.weight(.medium))
                             .foregroundStyle(statusColor)
                     }
                     .buttonStyle(.plain)
@@ -126,14 +134,22 @@ struct TerminalWindowView: View {
                     .buttonStyle(.borderless)
                     .font(.caption)
                 } else {
-                    Text(sessionModel.connectionState.displayText)
-                        .font(.caption)
+                    Label(sessionModel.connectionState.displayText, systemImage: statusIcon)
+                        .font(.caption.weight(.medium))
                         .foregroundStyle(statusColor)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(statusColor.opacity(0.10), in: Capsule())
                 }
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.vertical, 7)
             .background(Color(nsColor: .windowBackgroundColor))
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(ShellXUI.separator.opacity(0.7))
+                    .frame(height: 1)
+            }
         }
         .frame(minWidth: 860, minHeight: 520)
         .onAppear {
@@ -194,15 +210,21 @@ struct TerminalWindowView: View {
     }
 
     private var statusColor: Color {
+        ShellXUI.statusColor(sessionModel.connectionState)
+    }
+
+    private var statusIcon: String {
         switch sessionModel.connectionState {
         case .connected:
-            return .green
+            return "checkmark.circle.fill"
         case .connecting:
-            return .orange
+            return "arrow.triangle.2.circlepath"
         case .failed:
-            return .red
-        case .disconnected, .idle:
-            return .secondary
+            return "xmark.octagon.fill"
+        case .disconnected:
+            return "pause.circle"
+        case .idle:
+            return "circle"
         }
     }
 
@@ -352,40 +374,17 @@ struct TerminalWindowView: View {
 }
 
 private struct SessionTerminalTagStrip: View {
-    @Environment(\.colorScheme) private var colorScheme
     let tags: [String]
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
                 ForEach(tags, id: \.self) { tag in
-                    Text(tag)
-                        .font(.caption2)
-                        .lineLimit(1)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .foregroundStyle(tagForegroundColor)
-                        .background(tagBackgroundColor, in: Capsule())
-                        .overlay {
-                            Capsule()
-                                .strokeBorder(tagBorderColor, lineWidth: 1)
-                        }
+                    ShellXTagChip(title: tag)
                 }
             }
         }
         .frame(maxWidth: 280)
-    }
-
-    private var tagForegroundColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.92) : .primary
-    }
-
-    private var tagBackgroundColor: Color {
-        Color.accentColor.opacity(colorScheme == .dark ? 0.26 : 0.12)
-    }
-
-    private var tagBorderColor: Color {
-        Color.accentColor.opacity(colorScheme == .dark ? 0.42 : 0.22)
     }
 }
 
@@ -412,7 +411,11 @@ private struct ErrorBannerView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: ShellXUI.sectionCornerRadius))
+        .overlay {
+            RoundedRectangle(cornerRadius: ShellXUI.sectionCornerRadius)
+                .strokeBorder(ShellXUI.separator.opacity(0.6), lineWidth: 1)
+        }
     }
 }
 

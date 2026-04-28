@@ -232,7 +232,7 @@ private struct GlobalPreferencesView: View {
             Text("全局配置")
                 .font(.title2.weight(.semibold))
 
-            GroupBox("界面主题") {
+            ShellXSection("界面主题") {
                 VStack(alignment: .leading, spacing: 12) {
                     Picker("主题模式", selection: Binding(
                         get: { appearanceMode },
@@ -254,7 +254,7 @@ private struct GlobalPreferencesView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            GroupBox("窗口行为") {
+            ShellXSection("窗口行为") {
                 VStack(alignment: .leading, spacing: 12) {
                     Toggle(isOn: Binding(
                         get: { reopenTerminalTabsAfterMainWindowClose },
@@ -278,7 +278,7 @@ private struct GlobalPreferencesView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            GroupBox("鼠标 / 触控板行为") {
+            ShellXSection("鼠标 / 触控板行为") {
                 VStack(alignment: .leading, spacing: 12) {
                     Toggle(isOn: Binding(
                         get: { copySelectionOnSelect },
@@ -302,7 +302,7 @@ private struct GlobalPreferencesView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            GroupBox("终端性能") {
+            ShellXSection("终端性能") {
                 VStack(alignment: .leading, spacing: 12) {
                     Stepper(
                         value: Binding(
@@ -334,7 +334,7 @@ private struct GlobalPreferencesView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            GroupBox("应用更新") {
+            ShellXSection("应用更新") {
                 VStack(alignment: .leading, spacing: 12) {
                     Toggle(isOn: Binding(
                         get: { automaticUpdatesEnabled },
@@ -412,6 +412,7 @@ private struct GlobalPreferencesView: View {
             Spacer()
         }
         .padding(24)
+        .background(Color(nsColor: .windowBackgroundColor))
         .frame(width: 520, height: 700)
     }
 

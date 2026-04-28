@@ -30,6 +30,7 @@
 		1000000000000000000000D3 /* ScriptBatchExecutionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000000D2 /* ScriptBatchExecutionService.swift */; };
 		1000000000000000000000D5 /* ScriptManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000000D4 /* ScriptManagerView.swift */; };
 		1000000000000000000000D7 /* ScriptBatchExecutionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000000D6 /* ScriptBatchExecutionView.swift */; };
+		1000000000000000000000E1 /* ShellXDesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000000E0 /* ShellXDesignSystem.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -69,6 +70,7 @@
 		1000000000000000000000D2 /* ScriptBatchExecutionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScriptBatchExecutionService.swift; sourceTree = "<group>"; };
 		1000000000000000000000D4 /* ScriptManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScriptManagerView.swift; sourceTree = "<group>"; };
 		1000000000000000000000D6 /* ScriptBatchExecutionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScriptBatchExecutionView.swift; sourceTree = "<group>"; };
+		1000000000000000000000E0 /* ShellXDesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellXDesignSystem.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -187,6 +189,7 @@
 				1000000000000000000000D4 /* ScriptManagerView.swift */,
 				100000000000000000000007 /* SessionEditorSheet.swift */,
 				100000000000000000000008 /* SessionManagerView.swift */,
+				1000000000000000000000E0 /* ShellXDesignSystem.swift */,
 				10000000000000000000000C /* SwiftTermTerminalView.swift */,
 				100000000000000000000009 /* TerminalWindowView.swift */,
 			);
@@ -316,6 +319,7 @@
 				100000000000000000000016 /* SidebarTreeView.swift in Sources */,
 				100000000000000000000017 /* SessionEditorSheet.swift in Sources */,
 				100000000000000000000018 /* SessionManagerView.swift in Sources */,
+				1000000000000000000000E1 /* ShellXDesignSystem.swift in Sources */,
 				1000000000000000000000D5 /* ScriptManagerView.swift in Sources */,
 				1000000000000000000000D7 /* ScriptBatchExecutionView.swift in Sources */,
 				100000000000000000000027 /* KnownHostsService.swift in Sources */,
@@ -376,7 +380,7 @@
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				MARKETING_VERSION = 0.3.7;
+				MARKETING_VERSION = 0.3.8;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Config/ShellX.entitlements;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -404,7 +408,7 @@
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				MARKETING_VERSION = 0.3.7;
+				MARKETING_VERSION = 0.3.8;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Config/ShellX.entitlements;
 				GENERATE_INFOPLIST_FILE = YES;

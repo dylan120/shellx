@@ -10,8 +10,13 @@ struct ScriptManagerView: View {
         HSplitView {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    Text("脚本")
-                        .font(.headline)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("脚本")
+                            .font(.headline)
+                        Text("\(appModel.scripts.count) 个脚本")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                     Spacer()
                     Button {
                         draft = UserScript(name: "新建脚本")
@@ -19,17 +24,20 @@ struct ScriptManagerView: View {
                     } label: {
                         Label("新增", systemImage: "plus")
                     }
+                    .buttonStyle(.borderedProminent)
                 }
 
                 List(selection: $appModel.selectedScriptID) {
                     ForEach(appModel.scripts) { script in
                         VStack(alignment: .leading, spacing: 3) {
                             Text(script.name)
+                                .font(.callout.weight(appModel.selectedScriptID == script.id ? .semibold : .regular))
                                 .lineLimit(1)
                             Text(script.updatedAt.formatted(date: .numeric, time: .shortened))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
+                        .padding(.vertical, 4)
                         .tag(Optional(script.id))
                         .contextMenu {
                             Button("编辑") {
@@ -45,42 +53,45 @@ struct ScriptManagerView: View {
             }
             .padding(16)
             .frame(minWidth: 240)
+            .background(Color(nsColor: .controlBackgroundColor))
 
             VStack(alignment: .leading, spacing: 14) {
-                Text(appModel.selectedScriptID == nil ? "新增脚本" : "编辑脚本")
-                    .font(.title2.weight(.semibold))
-
-                Form {
-                    TextField("脚本名称", text: $draft.name)
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("脚本内容")
-                                .font(.subheadline)
-                            Spacer()
-                            Button {
-                                showingExpandedEditor = true
-                            } label: {
-                                Label("全屏查看", systemImage: "arrow.up.left.and.arrow.down.right")
-                            }
-                            Picker("语法", selection: $draft.language) {
-                                ForEach(ScriptLanguage.allCases) { language in
-                                    Text(language.title).tag(language)
-                                }
-                            }
-                            .labelsHidden()
-                            .pickerStyle(.segmented)
-                            .frame(width: 160)
+                HStack(alignment: .firstTextBaseline) {
+                    Text(appModel.selectedScriptID == nil ? "新增脚本" : "编辑脚本")
+                        .font(.title2.weight(.semibold))
+                    Spacer()
+                    Picker("语法", selection: $draft.language) {
+                        ForEach(ScriptLanguage.allCases) { language in
+                            Text(language.title).tag(language)
                         }
-                        SyntaxHighlightedScriptEditor(text: $draft.content, language: draft.language)
-                            .frame(minHeight: 320)
-                            .border(Color(nsColor: .separatorColor))
-                        Text("脚本会通过系统 ssh 发送到远端 `sh -s` 执行，请避免写入交互式命令。")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
                     }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(width: 160)
                 }
-                .formStyle(.grouped)
+
+                ShellXSection("脚本信息") {
+                    TextField("脚本名称", text: $draft.name)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                ShellXSection("脚本内容", subtitle: "脚本会通过系统 ssh 发送到远端 `sh -s` 执行，请避免写入交互式命令。") {
+                    HStack {
+                        Spacer()
+                        Button {
+                            showingExpandedEditor = true
+                        } label: {
+                            Label("大窗口编辑", systemImage: "arrow.up.left.and.arrow.down.right")
+                        }
+                    }
+                    SyntaxHighlightedScriptEditor(text: $draft.content, language: draft.language)
+                        .frame(minHeight: 340)
+                        .background(ShellXUI.subtleBackground, in: RoundedRectangle(cornerRadius: ShellXUI.controlCornerRadius))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: ShellXUI.controlCornerRadius)
+                                .strokeBorder(ShellXUI.separator.opacity(0.8), lineWidth: 1)
+                        }
+                }
 
                 HStack {
                     if let selected = appModel.selectedScript {
@@ -95,12 +106,14 @@ struct ScriptManagerView: View {
                     Button("保存") {
                         appModel.saveScript(draft)
                     }
+                    .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
                     .disabled(!draft.isValid)
                 }
             }
             .padding(20)
             .frame(minWidth: 560)
+            .background(Color(nsColor: .windowBackgroundColor))
         }
         .frame(minWidth: 860, minHeight: 560)
         .onAppear {
@@ -159,7 +172,11 @@ private struct ExpandedScriptEditorSheet: View {
             }
 
             SyntaxHighlightedScriptEditor(text: $text, language: language)
-                .border(Color(nsColor: .separatorColor))
+                .background(ShellXUI.subtleBackground, in: RoundedRectangle(cornerRadius: ShellXUI.controlCornerRadius))
+                .overlay {
+                    RoundedRectangle(cornerRadius: ShellXUI.controlCornerRadius)
+                        .strokeBorder(ShellXUI.separator.opacity(0.8), lineWidth: 1)
+                }
 
             Text("脚本会通过系统 ssh 发送到远端 `sh -s` 执行，请避免写入交互式命令。")
                 .font(.footnote)

@@ -104,6 +104,7 @@ struct SessionManagerView: View {
                 } label: {
                     Label("连接", systemImage: "play.circle")
                 }
+                .buttonStyle(.borderedProminent)
                 .disabled(appModel.selectedSession == nil)
             }
         }
@@ -225,13 +226,15 @@ private struct TerminalTabWorkspaceView: View {
                             }
                         }
                         .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
+                        .padding(.vertical, 6)
+                        .background(tabBackground(isActive: isActive, isHovered: isHovered), in: RoundedRectangle(cornerRadius: 7))
                         .contentShape(Rectangle())
-                        .overlay(alignment: .top) {
+                        .overlay(alignment: .bottom) {
                             if isActive {
                                 Rectangle()
                                     .fill(Color.accentColor)
                                     .frame(height: 2)
+                                    .clipShape(Capsule())
                             }
                         }
                         .foregroundStyle(Color.primary)
@@ -340,7 +343,7 @@ private struct TerminalTabWorkspaceView: View {
                     }
                 }
                 .padding(.horizontal, 12)
-                .padding(.bottom, 7)
+                .padding(.vertical, 8)
             }
             .background(Color(nsColor: .windowBackgroundColor))
 
@@ -431,6 +434,16 @@ private struct TerminalTabWorkspaceView: View {
         case .ssh:
             return "复制会话到新标签"
         }
+    }
+
+    private func tabBackground(isActive: Bool, isHovered: Bool) -> Color {
+        if isActive {
+            return Color.accentColor.opacity(0.12)
+        }
+        if isHovered {
+            return Color.secondary.opacity(0.08)
+        }
+        return .clear
     }
 }
 
@@ -716,62 +729,119 @@ private struct SessionDetailView: View {
     var body: some View {
         if let session = appModel.selectedSession {
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text(session.name)
-                        .font(.largeTitle.weight(.bold))
+                VStack(alignment: .leading, spacing: 18) {
+                    HStack(alignment: .top, spacing: 14) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(session.name)
+                                .font(.largeTitle.weight(.bold))
+                                .lineLimit(2)
+                            Text("\(session.destination):\(session.port)")
+                                .font(.title3)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
 
-                    LabeledContent("主机", value: session.host)
-                    LabeledContent("端口", value: "\(session.port)")
-                    LabeledContent("用户名", value: session.username.isEmpty ? "未填写" : session.username)
-                    LabeledContent("认证方式", value: session.authMethod.displayName)
-                    LabeledContent("所属文件夹", value: appModel.folderName(for: session.folderID))
+                        Spacer(minLength: 16)
 
-                    if !session.privateKeyPath.isEmpty {
-                        LabeledContent("私钥路径", value: session.privateKeyPath)
-                        LabeledContent("Keychain", value: session.useKeychainForPrivateKey ? "已启用" : "未启用")
+                        HStack(spacing: 8) {
+                            Button {
+                                onEdit(session)
+                            } label: {
+                                Label("编辑", systemImage: "pencil")
+                            }
+
+                            Button {
+                                onConnect(session)
+                            } label: {
+                                Label("连接", systemImage: "play.fill")
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .keyboardShortcut(.defaultAction)
+                        }
                     }
 
-                    if session.authMethod == .password {
-                        LabeledContent("密码存储", value: session.passwordStoredInKeychain ? "系统 Keychain" : "未保存")
+                    HStack(spacing: 8) {
+                        ShellXStatusPill(
+                            title: session.authMethod.displayName,
+                            systemImage: authIcon(for: session.authMethod),
+                            color: .accentColor
+                        )
+                        ShellXStatusPill(
+                            title: session.lastConnectedAt == nil ? "未连接过" : "已连接",
+                            systemImage: session.lastConnectedAt == nil ? "clock" : "checkmark.circle",
+                            color: session.lastConnectedAt == nil ? .secondary : .green
+                        )
                     }
 
-                    if !session.startupCommand.isEmpty {
-                        LabeledContent("启动命令", value: session.startupCommand)
+                    ShellXSection("基础信息") {
+                        ShellXInfoRow(title: "主机", value: session.host, systemImage: "network", isMonospaced: true)
+                        ShellXInfoRow(title: "端口", value: "\(session.port)", systemImage: "number", isMonospaced: true)
+                        ShellXInfoRow(title: "用户名", value: session.username.isEmpty ? "未填写" : session.username, systemImage: "person")
+                        ShellXInfoRow(title: "所属文件夹", value: appModel.folderName(for: session.folderID), systemImage: "folder")
+                        ShellXInfoRow(
+                            title: "最近连接",
+                            value: session.lastConnectedAt.map { formatter.string(from: $0) } ?? "暂无",
+                            systemImage: "clock"
+                        )
                     }
 
-                    if !session.tags.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("标签")
-                                .font(.headline)
+                    ShellXSection("认证与安全") {
+                        ShellXInfoRow(title: "认证方式", value: session.authMethod.displayName, systemImage: authIcon(for: session.authMethod))
+
+                        if !session.privateKeyPath.isEmpty {
+                            ShellXInfoRow(title: "私钥路径", value: session.privateKeyPath, systemImage: "doc.text", isMonospaced: true)
+                            ShellXInfoRow(title: "Keychain", value: session.useKeychainForPrivateKey ? "已启用" : "未启用", systemImage: "key")
+                        }
+
+                        if session.authMethod == .password {
+                            ShellXInfoRow(
+                                title: "密码存储",
+                                value: session.passwordStoredInKeychain ? "系统 Keychain" : "未保存",
+                                systemImage: "lock"
+                            )
+                        }
+                    }
+
+                    ShellXSection("标签与启动行为") {
+                        if session.tags.isEmpty {
+                            Text("尚未添加标签")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                        } else {
                             SessionTagSummaryView(tags: session.tags)
                         }
-                    }
 
-                    LabeledContent(
-                        "最近连接",
-                        value: session.lastConnectedAt.map { formatter.string(from: $0) } ?? "暂无"
-                    )
-
-                    HStack {
-                        Button("编辑") {
-                            onEdit(session)
+                        if !session.startupCommand.isEmpty {
+                            Text(session.startupCommand)
+                                .font(.system(.callout, design: .monospaced))
+                                .textSelection(.enabled)
+                                .padding(10)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(ShellXUI.subtleBackground, in: RoundedRectangle(cornerRadius: ShellXUI.controlCornerRadius))
                         }
-                        Button("连接") {
-                            onConnect(session)
-                        }
-                        .keyboardShortcut(.defaultAction)
                     }
-                    .padding(.top, 8)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(24)
+                .padding(26)
             }
+            .background(Color(nsColor: .windowBackgroundColor))
         } else {
-            ContentUnavailableView(
-                "选择一个会话",
-                systemImage: "terminal",
-                description: Text("从左侧文件夹树中的会话项里选择要管理的 SSH 会话。")
+            ShellXEmptyState(
+                title: "选择一个会话",
+                message: "从左侧文件夹树中选择 SSH 会话，查看连接信息、认证方式和启动配置。",
+                systemImage: "terminal"
             )
+        }
+    }
+
+    private func authIcon(for method: SSHAuthMethod) -> String {
+        switch method {
+        case .sshAgent:
+            return "key.horizontal"
+        case .privateKey:
+            return "doc.text"
+        case .password:
+            return "lock"
         }
     }
 }
@@ -782,12 +852,7 @@ private struct SessionTagSummaryView: View {
     var body: some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), alignment: .leading)], alignment: .leading, spacing: 8) {
             ForEach(tags, id: \.self) { tag in
-                Text(tag)
-                    .font(.caption)
-                    .lineLimit(1)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color.accentColor.opacity(0.12), in: Capsule())
+                ShellXTagChip(title: tag)
             }
         }
     }
