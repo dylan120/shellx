@@ -106,9 +106,20 @@ final class ShellXTerminalView: TerminalView {
         let eventNumber: Int
         let clickCount: Int
         let pressure: Float
+
+        init(event: NSEvent) {
+            locationInWindow = event.locationInWindow
+            modifierFlags = event.modifierFlags
+            windowNumber = event.windowNumber
+            eventNumber = event.eventNumber
+            clickCount = event.clickCount
+            pressure = event.pressure
+        }
     }
 
     private static var sharedKeyEventMonitor: Any?
+    private static var sharedMouseDraggedEventMonitor: Any?
+    private static var sharedMouseUpEventMonitor: Any?
     private static var liveViewCount = 0
 
     private var pendingSelectionCopyTask: DispatchWorkItem?
@@ -135,6 +146,7 @@ final class ShellXTerminalView: TerminalView {
         super.init(frame: frameRect)
         startObservingPreferences()
         Self.installSharedKeyEventMonitorIfNeeded()
+        Self.installSharedMouseEventMonitorsIfNeeded()
         Self.liveViewCount += 1
     }
 
@@ -142,6 +154,7 @@ final class ShellXTerminalView: TerminalView {
         super.init(coder: coder)
         startObservingPreferences()
         Self.installSharedKeyEventMonitorIfNeeded()
+        Self.installSharedMouseEventMonitorsIfNeeded()
         Self.liveViewCount += 1
     }
 
@@ -173,6 +186,7 @@ final class ShellXTerminalView: TerminalView {
         }
         Self.liveViewCount = max(0, Self.liveViewCount - 1)
         Self.removeSharedKeyEventMonitorIfNeeded()
+        Self.removeSharedMouseEventMonitorsIfNeeded()
         removeOutsideClickMonitor()
     }
 
@@ -245,27 +259,13 @@ final class ShellXTerminalView: TerminalView {
         }
     }
 
-    override func mouseDragged(with event: NSEvent) {
-        // 让 SwiftTerm 先处理拖拽选区，再基于最新选区状态补持续自动滚动。
-        super.mouseDragged(with: event)
-        handleObservedMouseDragged(event)
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        super.mouseUp(with: event)
-        handleObservedMouseUp()
-    }
-
     private func handleObservedMouseDragged(_ event: NSEvent) {
-        lastSelectionDragEventSnapshot = SelectionDragEventSnapshot(
-            locationInWindow: event.locationInWindow,
-            modifierFlags: event.modifierFlags,
-            windowNumber: event.windowNumber,
-            eventNumber: event.eventNumber,
-            clickCount: event.clickCount,
-            pressure: event.pressure
-        )
-        updateSelectionAutoScrollState(with: event)
+        handleObservedMouseDragged(snapshot: SelectionDragEventSnapshot(event: event))
+    }
+
+    private func handleObservedMouseDragged(snapshot: SelectionDragEventSnapshot) {
+        lastSelectionDragEventSnapshot = snapshot
+        updateSelectionAutoScrollState(with: snapshot)
     }
 
     private func handleObservedMouseUp() {
@@ -273,13 +273,13 @@ final class ShellXTerminalView: TerminalView {
         lastSelectionDragEventSnapshot = nil
     }
 
-    private func updateSelectionAutoScrollState(with event: NSEvent) {
+    private func updateSelectionAutoScrollState(with snapshot: SelectionDragEventSnapshot) {
         guard selectedRange().length > 0 else {
             invalidateSelectionAutoScrollTimer()
             return
         }
 
-        let localPoint = convert(event.locationInWindow, from: nil)
+        let localPoint = convert(snapshot.locationInWindow, from: nil)
         let scrollVelocity = selectionAutoScrollVelocity(for: localPoint)
         guard scrollVelocity != 0 else {
             invalidateSelectionAutoScrollTimer()
@@ -417,10 +417,45 @@ final class ShellXTerminalView: TerminalView {
         }
     }
 
+    private static func installSharedMouseEventMonitorsIfNeeded() {
+        if sharedMouseDraggedEventMonitor == nil {
+            sharedMouseDraggedEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDragged) { event in
+                guard let terminalView = currentFocusedTerminalView(for: event) else {
+                    return event
+                }
+                // 本地 monitor 在事件分发前执行；延后一轮只保存事件快照，避免定时器复用原始 NSEvent。
+                let snapshot = SelectionDragEventSnapshot(event: event)
+                DispatchQueue.main.async { [weak terminalView] in
+                    terminalView?.handleObservedMouseDragged(snapshot: snapshot)
+                }
+                return event
+            }
+        }
+
+        if sharedMouseUpEventMonitor == nil {
+            sharedMouseUpEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { event in
+                currentFocusedTerminalView(for: event)?.handleObservedMouseUp()
+                return event
+            }
+        }
+    }
+
     private static func removeSharedKeyEventMonitorIfNeeded() {
         guard liveViewCount == 0, let sharedKeyEventMonitor else { return }
         NSEvent.removeMonitor(sharedKeyEventMonitor)
         self.sharedKeyEventMonitor = nil
+    }
+
+    private static func removeSharedMouseEventMonitorsIfNeeded() {
+        guard liveViewCount == 0 else { return }
+        if let sharedMouseDraggedEventMonitor {
+            NSEvent.removeMonitor(sharedMouseDraggedEventMonitor)
+            self.sharedMouseDraggedEventMonitor = nil
+        }
+        if let sharedMouseUpEventMonitor {
+            NSEvent.removeMonitor(sharedMouseUpEventMonitor)
+            self.sharedMouseUpEventMonitor = nil
+        }
     }
 
     private static func currentFocusedTerminalView(for event: NSEvent) -> ShellXTerminalView? {
