@@ -32,17 +32,16 @@ struct SwiftTermTerminalView: NSViewRepresentable {
         }
         terminalView.isActiveForInput = isActive
 
-        guard isActive else {
-            terminalView.clearWindowFocusIfNeeded()
-            return
-        }
-
         let currentViewIdentity = ObjectIdentifier(terminalView)
         let currentSessionModelIdentity = ObjectIdentifier(sessionModel)
         let isSameView = context.coordinator.attachedViewIdentity == currentViewIdentity
         let isSameSessionModel = context.coordinator.attachedSessionModelIdentity == currentSessionModelIdentity
         if isSameView && isSameSessionModel {
-            terminalView.focusIfNeeded()
+            if isActive {
+                terminalView.focusIfNeeded()
+            } else {
+                terminalView.clearWindowFocusIfNeeded()
+            }
             return
         }
         context.coordinator.attachedViewIdentity = currentViewIdentity
@@ -51,10 +50,25 @@ struct SwiftTermTerminalView: NSViewRepresentable {
         // SwiftUI 初次创建 NSView 时，底层尺寸常常还没稳定。
         // 延后到 update 阶段再附着，避免终端按过大的初始行数启动，导致全屏程序首屏顶部被裁掉。
         // 当 SwiftUI 复用同一个 NSView 但切换到新的会话模型时，也需要重新附着，否则新会话收不到输出。
+        // 后台标签同样必须附着终端视图，持续消费 PTY 输出并维护 SwiftTerm 屏幕状态；
+        // 否则长时间隐藏后只能回放原始字节，遇到 TUI/ANSI 半截状态时会造成显示错乱。
         DispatchQueue.main.async {
             sessionModel.attachTerminalView(terminalView)
-            terminalView.focusIfNeeded()
+            if isActive {
+                terminalView.focusIfNeeded()
+            } else {
+                terminalView.clearWindowFocusIfNeeded()
+            }
         }
+    }
+
+    static func dismantleNSView(_ nsView: ShellXTerminalContainerView, coordinator: Coordinator) {
+        if let owner = nsView.terminalView.attachedSessionModel,
+           coordinator.attachedSessionModelIdentity == ObjectIdentifier(owner) {
+            owner.detachTerminalView(nsView.terminalView)
+        }
+        coordinator.attachedViewIdentity = nil
+        coordinator.attachedSessionModelIdentity = nil
     }
 }
 
@@ -209,6 +223,15 @@ final class ShellXTerminalView: TerminalView {
         guard shouldRevealOutputAfterUserInput else { return }
         shouldRevealOutputAfterUserInput = false
         revealLatestOutputIfNeeded()
+    }
+
+    func resetVisibleStateForReuse() {
+        selectNone()
+        onSelectionChanged?(false)
+        // SwiftTerm 视图被 SwiftUI 复用给另一个会话时，需要先重置本地终端状态，
+        // 避免上一会话的 alternate screen、光标位置或颜色属性残留到新会话。
+        let resetSequence: [UInt8] = [0x1B, 0x63]
+        feed(byteArray: resetSequence[...])
     }
 
     private func revealLatestOutputIfNeeded() {

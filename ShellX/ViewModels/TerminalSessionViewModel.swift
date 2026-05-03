@@ -148,6 +148,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
     private var pendingConnectedHandler: ((UUID) -> Void)?
     private var pendingLocalShellPath: String?
     private var pendingLocalShellLaunchMode: LocalShellLaunchMode = .login
+    private var didTruncatePendingTerminalOutput = false
     private var pendingPasswordHandler: ((String) -> Void)?
     private var passwordPromptPurpose: PasswordPromptPurpose?
     private var hasAttemptedSSHPasswordAutofill = false
@@ -209,6 +210,9 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
             return
         }
         claimTerminalView(terminalView)
+        if let shellXTerminalView = terminalView as? ShellXTerminalView {
+            shellXTerminalView.resetVisibleStateForReuse()
+        }
         self.terminalView = terminalView
         terminalView.terminalDelegate = self
         configureAppearance(for: terminalView)
@@ -274,12 +278,20 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
         guard !data.isEmpty else { return }
         pendingTerminalOutput.append(data)
         if pendingTerminalOutput.count > maxPendingTerminalOutputBytes {
+            didTruncatePendingTerminalOutput = true
             pendingTerminalOutput = Data(pendingTerminalOutput.suffix(maxPendingTerminalOutputBytes))
         }
     }
 
     private func flushPendingTerminalOutput(to terminalView: TerminalView) {
         guard !pendingTerminalOutput.isEmpty else { return }
+        if didTruncatePendingTerminalOutput {
+            pendingTerminalOutput.removeAll(keepingCapacity: true)
+            didTruncatePendingTerminalOutput = false
+            let message = "\r\n[ShellX] 后台终端输出过多，已跳过一段未显示内容；请按 Enter 刷新提示符，或在必要时重连当前终端。\r\n"
+            feed(Data(message.utf8), to: terminalView)
+            return
+        }
         let data = pendingTerminalOutput
         pendingTerminalOutput.removeAll(keepingCapacity: true)
         feed(data, to: terminalView)
@@ -287,6 +299,7 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
 
     private func clearPendingTerminalOutput() {
         pendingTerminalOutput.removeAll(keepingCapacity: true)
+        didTruncatePendingTerminalOutput = false
     }
 
     func updateTextSelectionState(_ hasSelection: Bool) {
@@ -303,6 +316,11 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
 
     func pasteClipboardText() {
         guard let terminalView = currentlyOwnedTerminalView() else { return }
+        if let clipboardText = NSPasteboard.general.string(forType: .string),
+           Self.looksLikeShellXDebugSnapshot(clipboardText) {
+            showTransientBanner("已阻止将 ShellX 调试快照粘贴到终端。", delaySeconds: 5)
+            return
+        }
         terminalView.paste(self)
     }
 
@@ -589,6 +607,28 @@ final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTranspor
 
     func clearTerminalDebugSnapshot() {
         terminalDebugSnapshot = ""
+    }
+
+    static func looksLikeShellXDebugSnapshot(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        if trimmed.contains("[SessionPasswordStore]"),
+           trimmed.contains("session="),
+           (trimmed.contains("loadPassword.") || trimmed.contains("savePassword.") || trimmed.contains("deletePassword.")) {
+            return true
+        }
+
+        // “复制调试”会把真实 ESC 字节转成字面量 <ESC>。这类长片段若被粘贴回终端，
+        // 交互程序会收到大量普通文本，表现为终端内容突然被调试快照污染。
+        let escapeMarkerCount = trimmed.components(separatedBy: "<ESC>").count - 1
+        if escapeMarkerCount >= 4,
+           trimmed.contains("<ESC>["),
+           (trimmed.contains("<CR>") || trimmed.contains("<LF>") || trimmed.contains("<TAB>")) {
+            return true
+        }
+
+        return false
     }
 
     static func terminalExitFailureMessage(
@@ -1291,6 +1331,11 @@ extension TerminalSessionViewModel: TerminalViewDelegate {
         guard !normalizedBuffer.isEmpty else { return }
         let shellXTerminalView = source as? ShellXTerminalView
         Task { @MainActor [weak self, weak shellXTerminalView] in
+            if let pastedText = String(data: normalizedBuffer, encoding: .utf8),
+               Self.looksLikeShellXDebugSnapshot(pastedText) {
+                self?.showTransientBanner("已阻止将 ShellX 调试快照粘贴到终端。", delaySeconds: 5)
+                return
+            }
             shellXTerminalView?.prepareForUserInput()
             if normalizedBuffer == Data([0x03]),
                self?.cancelActiveTransferFromKeyboard() == true {

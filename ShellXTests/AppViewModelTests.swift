@@ -114,6 +114,23 @@ final class AppViewModelTests: XCTestCase {
         XCTAssertNil(TerminalLinkResolver.openableURL(from: "https://example.com\nopen"))
     }
 
+    func testShellXDebugSnapshotIsRecognizedBeforePaste() {
+        let snapshot = """
+        [SessionPasswordStore] 2026-05-03T08:06:42Z session=AECD3CE6-12B2-4363-94A7-3606B636852B loadPassword.keychain.begin
+        [SessionPasswordStore] 2026-05-03T08:06:47Z session=AECD3CE6-12B2-4363-94A7-3606B636852B loadPassword.keychain.success
+
+        <ESC>[?2026h<ESC>[30;2H<ESC>[0m<ESC>[49m<ESC>[K<CR>
+        """
+
+        XCTAssertTrue(TerminalSessionViewModel.looksLikeShellXDebugSnapshot(snapshot))
+    }
+
+    func testOrdinaryTerminalTextIsNotTreatedAsDebugSnapshot() {
+        XCTAssertFalse(TerminalSessionViewModel.looksLikeShellXDebugSnapshot("echo '<ESC>[31m red'"))
+        XCTAssertFalse(TerminalSessionViewModel.looksLikeShellXDebugSnapshot("SessionPasswordStore 是普通说明文字"))
+        XCTAssertFalse(TerminalSessionViewModel.looksLikeShellXDebugSnapshot("ls -la\npwd\n"))
+    }
+
     func testKnownHostSubsetScanRemainsTrusted() {
         let state = KnownHostsService.classifyTrust(
             host: "example.com",
@@ -849,6 +866,23 @@ final class AppViewModelTests: XCTestCase {
         XCTAssertFalse(firstModel.isAttached(to: terminalView))
         XCTAssertTrue(secondModel.isAttached(to: terminalView))
         XCTAssertTrue(terminalView.attachedSessionModel === secondModel)
+    }
+
+    func testDismantleDoesNotDetachNewOwnerAfterViewReuse() {
+        let oldModel = TerminalSessionViewModel()
+        let newModel = TerminalSessionViewModel()
+        let terminalView = ShellXTerminalView(frame: .zero)
+        let container = ShellXTerminalContainerView(terminalView: terminalView, leadingContentInset: 0)
+        let coordinator = SwiftTermTerminalView.Coordinator()
+
+        oldModel.attachTerminalView(terminalView)
+        coordinator.attachedSessionModelIdentity = ObjectIdentifier(oldModel)
+        newModel.attachTerminalView(terminalView)
+
+        SwiftTermTerminalView.dismantleNSView(container, coordinator: coordinator)
+
+        XCTAssertTrue(newModel.isAttached(to: terminalView))
+        XCTAssertTrue(terminalView.attachedSessionModel === newModel)
     }
 
     func testFocusedTerminalLookupRequiresAttachedActiveTerminalView() {
