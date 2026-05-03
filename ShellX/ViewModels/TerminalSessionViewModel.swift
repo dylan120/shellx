@@ -93,6 +93,32 @@ private enum TerminalRuntimeKind: Equatable {
     }
 }
 
+enum TerminalLinkResolver {
+    private static let allowedSchemes: Set<String> = ["http", "https", "mailto"]
+
+    static func openableURL(from link: String) -> URL? {
+        let trimmedLink = link.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedLink.isEmpty,
+              !trimmedLink.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
+              let url = URL(string: trimmedLink),
+              let scheme = url.scheme?.lowercased(),
+              allowedSchemes.contains(scheme) else {
+            return nil
+        }
+
+        switch scheme {
+        case "http", "https":
+            guard let host = url.host(percentEncoded: false), !host.isEmpty else { return nil }
+        case "mailto":
+            guard !url.path.isEmpty else { return nil }
+        default:
+            return nil
+        }
+
+        return url
+    }
+}
+
 @MainActor
 final class TerminalSessionViewModel: NSObject, ObservableObject, SSHPTYTransportDelegate, SFTPTransferServiceDelegate {
     @Published var connectionState: TerminalConnectionState = .idle
@@ -1278,7 +1304,7 @@ extension TerminalSessionViewModel: TerminalViewDelegate {
     }
 
     nonisolated func requestOpenLink(source: TerminalView, link: String, params: [String : String]) {
-        guard let url = URL(string: link) else { return }
+        guard let url = TerminalLinkResolver.openableURL(from: link) else { return }
         Task { @MainActor in
             NSWorkspace.shared.open(url)
         }

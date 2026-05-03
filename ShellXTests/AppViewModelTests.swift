@@ -94,6 +94,26 @@ final class AppViewModelTests: XCTestCase {
         )
     }
 
+    func testTerminalLinkResolverAcceptsExplicitWebLinks() {
+        XCTAssertEqual(
+            TerminalLinkResolver.openableURL(from: " https://example.com/releases?id=1 ")?.absoluteString,
+            "https://example.com/releases?id=1"
+        )
+
+        XCTAssertEqual(
+            TerminalLinkResolver.openableURL(from: "http://example.com")?.host(percentEncoded: false),
+            "example.com"
+        )
+    }
+
+    func testTerminalLinkResolverRejectsSelectionTextAndInvalidURLs() {
+        XCTAssertNil(TerminalLinkResolver.openableURL(from: "应用程序无法打开。-50"))
+        XCTAssertNil(TerminalLinkResolver.openableURL(from: "/Applications/ShellX.app"))
+        XCTAssertNil(TerminalLinkResolver.openableURL(from: "https://"))
+        XCTAssertNil(TerminalLinkResolver.openableURL(from: "x-shellx://open-session"))
+        XCTAssertNil(TerminalLinkResolver.openableURL(from: "https://example.com\nopen"))
+    }
+
     func testKnownHostSubsetScanRemainsTrusted() {
         let state = KnownHostsService.classifyTrust(
             host: "example.com",
