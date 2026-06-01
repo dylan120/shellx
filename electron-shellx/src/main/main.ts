@@ -35,6 +35,7 @@ interface ManagedTerminal {
   ptyProcess: pty.IPty;
   pendingZmodemInput?: Buffer[];
   pendingZmodemInputBytes?: number;
+  pendingZmodemScanTail?: Buffer;
   transfer?: {
     direction: "upload" | "download";
     child: ChildProcessWithoutNullStreams;
@@ -46,8 +47,10 @@ let mainWindow: BrowserWindow | null = null;
 let didCreateMainWindow = false;
 let pendingDownloadedUpdate: { assetPath: string; latestVersion: string } | null = null;
 const zmodemStartBytes = Buffer.from("**\x18B0", "binary");
+const zmodemCancelBytes = Buffer.from("\x18\x18\x18\x18\x18\x08\x08\x08\x08\x08\x03", "binary");
 const pendingZmodemInputLimit = 1024 * 1024;
 const shellToolPath = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"].join(":");
+const shellToolDirs = shellToolPath.split(":");
 
 type AppCommandPayload = Record<string, unknown> | undefined;
 
@@ -893,6 +896,7 @@ function createPty(request: CreateTerminalRequest): ManagedTerminal {
     mainWindow?.webContents.send(`terminal:data:${id}`, chunk.toString("utf8"));
   });
   ptyProcess.onExit(({ exitCode, signal }) => {
+    terminal.transfer?.child.kill("SIGTERM");
     const payload: TerminalExitPayload = { id, exitCode, signal };
     mainWindow?.webContents.send(`terminal:exit:${id}`, payload);
     terminals.delete(id);
@@ -906,8 +910,22 @@ function zmodemStatus(payload: ZmodemStatusPayload): void {
 }
 
 function rememberPendingZmodemInput(terminal: ManagedTerminal, chunk: Buffer): void {
-  if (!terminal.pendingZmodemInput && chunk.indexOf(zmodemStartBytes) === -1) return;
   if (chunk.length === 0) return;
+
+  if (!terminal.pendingZmodemInput) {
+    const scanChunk = terminal.pendingZmodemScanTail?.length ? Buffer.concat([terminal.pendingZmodemScanTail, chunk]) : chunk;
+    const startIndex = scanChunk.indexOf(zmodemStartBytes);
+    if (startIndex === -1) {
+      terminal.pendingZmodemScanTail = chunk.subarray(Math.max(0, chunk.length - zmodemStartBytes.length + 1));
+      return;
+    }
+
+    terminal.pendingZmodemScanTail = undefined;
+    terminal.pendingZmodemInput = [scanChunk.subarray(startIndex)];
+    terminal.pendingZmodemInputBytes = terminal.pendingZmodemInput[0]?.length ?? 0;
+    return;
+  }
+
   terminal.pendingZmodemInput ??= [];
   terminal.pendingZmodemInput.push(chunk);
   terminal.pendingZmodemInputBytes = (terminal.pendingZmodemInputBytes ?? 0) + chunk.length;
@@ -922,8 +940,29 @@ function consumePendingZmodemInput(terminal: ManagedTerminal): Buffer | undefine
   const chunks = terminal.pendingZmodemInput;
   terminal.pendingZmodemInput = undefined;
   terminal.pendingZmodemInputBytes = undefined;
+  terminal.pendingZmodemScanTail = undefined;
   if (!chunks || chunks.length === 0) return undefined;
   return Buffer.concat(chunks);
+}
+
+function resolveShellTool(command: string): string | undefined {
+  const paths = [...shellToolDirs, ...(process.env.PATH ?? "").split(":")].filter(Boolean);
+  for (const dir of paths) {
+    const candidate = path.join(dir, command);
+    if (existsSync(candidate)) return candidate;
+  }
+  return undefined;
+}
+
+function cancelZmodemTransfer(terminal: ManagedTerminal, id: string, message: string): void {
+  const activeTransfer = terminal.transfer;
+  consumePendingZmodemInput(terminal);
+  if (activeTransfer) {
+    terminal.transfer = undefined;
+    activeTransfer.child.kill("SIGTERM");
+  }
+  terminal.ptyProcess.write(zmodemCancelBytes);
+  zmodemStatus({ id, direction: activeTransfer?.direction ?? "download", state: "failed", message });
 }
 
 function startZmodemTransfer(id: string, direction: "upload" | "download", args: string[], cwd?: string): { ok: boolean; message: string } {
@@ -931,20 +970,35 @@ function startZmodemTransfer(id: string, direction: "upload" | "download", args:
   if (!terminal) return { ok: false, message: "终端不存在" };
   if (terminal.transfer) return { ok: false, message: "已有 lrzsz 传输正在进行" };
   const pendingInput = consumePendingZmodemInput(terminal);
-  const child = spawn("/usr/bin/env", args, { cwd, env: { ...process.env, PATH: `${shellToolPath}:${process.env.PATH ?? ""}` } });
+  const command = args[0];
+  const resolvedCommand = command ? resolveShellTool(command) : undefined;
+  if (!command || !resolvedCommand) {
+    terminal.ptyProcess.write(zmodemCancelBytes);
+    return { ok: false, message: `本机未找到 ${command || "lrzsz"}，请先安装 lrzsz` };
+  }
+
+  const child = spawn(resolvedCommand, args.slice(1), { cwd, env: { ...process.env, PATH: `${shellToolPath}:${process.env.PATH ?? ""}` } });
   terminal.transfer = { direction, child };
   const label = direction === "upload" ? "上传" : "下载";
+  let stderrText = "";
 
   zmodemStatus({ id, direction, state: "started", message: `lrzsz ${label}已开始` });
   if (pendingInput?.length) child.stdin.write(pendingInput);
   child.stdout.on("data", (chunk: Buffer) => terminal.ptyProcess.write(chunk));
-  child.stderr.on("data", (chunk: Buffer) => zmodemStatus({ id, direction, state: "started", message: chunk.toString("utf8").trim() || `lrzsz ${label}中` }));
+  child.stderr.on("data", (chunk: Buffer) => {
+    stderrText = `${stderrText}${chunk.toString("utf8")}`.slice(-1000);
+    zmodemStatus({ id, direction, state: "started", message: chunk.toString("utf8").trim() || `lrzsz ${label}中` });
+  });
   child.on("close", (code) => {
+    if (terminal.transfer?.child !== child) return;
     if (terminal.transfer?.child === child) terminal.transfer = undefined;
-    zmodemStatus({ id, direction, state: code === 0 ? "finished" : "failed", message: code === 0 ? `lrzsz ${label}完成` : `lrzsz ${label}失败：${code ?? "signal"}` });
+    if (code !== 0) terminal.ptyProcess.write(zmodemCancelBytes);
+    const detail = stderrText.trim().split(/\r?\n/).filter(Boolean).at(-1);
+    zmodemStatus({ id, direction, state: code === 0 ? "finished" : "failed", message: code === 0 ? `lrzsz ${label}完成` : `lrzsz ${label}失败：${detail || code || "signal"}` });
   });
   child.on("error", (error) => {
     if (terminal.transfer?.child === child) terminal.transfer = undefined;
+    terminal.ptyProcess.write(zmodemCancelBytes);
     zmodemStatus({ id, direction, state: "failed", message: `lrzsz 启动失败：${error.message}` });
   });
   return { ok: true, message: `lrzsz ${label}已开始` };
@@ -1056,6 +1110,10 @@ ipcMain.handle("terminal:zmodemDownload", (_event, payload: { id: string; direct
 ipcMain.on("terminal:write", (_event, payload: { id: string; data: string }) => {
   const terminal = terminals.get(payload.id);
   if (!terminal) return;
+  if (terminal.transfer) {
+    if (payload.data.includes("\x03")) cancelZmodemTransfer(terminal, payload.id, "已取消 lrzsz");
+    return;
+  }
   if (payload.data.includes("\x18\x18")) consumePendingZmodemInput(terminal);
   terminal.ptyProcess.write(payload.data);
 });

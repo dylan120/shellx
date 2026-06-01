@@ -1191,7 +1191,7 @@ async function openTerminal(request: CreateTerminalRequest, titleOverride?: stri
     if (!tab) return;
     tab.zmodemActive = payload.state === "started";
     tab.transferMessage = payload.message;
-    if (payload.state !== "started") tab.zmodemHandled = false;
+    if (payload.state === "finished") tab.zmodemHandled = false;
     if (activeTabID === id) setStatus(payload.message, payload.state === "started", payload.state !== "started");
   });
   insertTab(id, { id, title: titleOverride ?? title, subtitle, request, terminal, fitAddon, pane, disposeData, disposeExit, disposeZmodem, connecting: true, exited: false, pinned: false, unread: false, attention: "normal", recentOutput: "", passwordAutofillAttempted: false, passwordPromptPending: false, zmodemActive: false, zmodemHandled: false, transferMessage: "" }, insertAfterTabID);
@@ -1221,7 +1221,6 @@ async function maybeStartZmodem(tab: TerminalTab, data: string): Promise<void> {
     if (result.canceled || result.filePaths.length === 0) { cancelPendingZmodem(tab); setStatus("已取消 lrzsz 上传", false, true); return; }
     const start = await window.shellx.terminal.startZmodemUpload(tab.id, result.filePaths);
     setStatus(start.message, start.ok, !start.ok);
-    if (!start.ok) tab.zmodemHandled = false;
     return;
   }
   const result = await window.shellx.dialog.openPath({
@@ -1232,7 +1231,6 @@ async function maybeStartZmodem(tab: TerminalTab, data: string): Promise<void> {
   if (result.canceled || !result.filePaths[0]) { cancelPendingZmodem(tab); setStatus("已取消 lrzsz 下载", false, true); return; }
   const start = await window.shellx.terminal.startZmodemDownload(tab.id, result.filePaths[0]);
   setStatus(start.message, start.ok, !start.ok);
-  if (!start.ok) tab.zmodemHandled = false;
 }
 
 function cancelPendingZmodem(tab: TerminalTab): void {
