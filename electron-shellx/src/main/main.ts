@@ -7,6 +7,7 @@ import { createWriteStream, existsSync, promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 import pty from "node-pty";
 import type {
@@ -33,6 +34,7 @@ interface ManagedTerminal {
   id: string;
   title: string;
   ptyProcess: pty.IPty;
+  decoder: StringDecoder;
   pendingZmodemInput?: Buffer[];
   pendingZmodemInputBytes?: number;
   pendingZmodemScanTail?: Buffer;
@@ -882,7 +884,7 @@ function createPty(request: CreateTerminalRequest): ManagedTerminal {
     ? `${request.username ? `${request.username}@` : ""}${request.host}`
     : path.basename(shellPath(request));
 
-  const terminal: ManagedTerminal = { id, title, ptyProcess };
+  const terminal: ManagedTerminal = { id, title, ptyProcess, decoder: new StringDecoder("utf8") };
   terminals.set(id, terminal);
 
   ptyProcess.onData((data: string | Buffer) => {
@@ -893,10 +895,12 @@ function createPty(request: CreateTerminalRequest): ManagedTerminal {
       return;
     }
     rememberPendingZmodemInput(terminal, chunk);
-    mainWindow?.webContents.send(`terminal:data:${id}`, chunk.toString("utf8"));
+    mainWindow?.webContents.send(`terminal:data:${id}`, terminal.decoder.write(chunk));
   });
   ptyProcess.onExit(({ exitCode, signal }) => {
     terminal.transfer?.child.kill("SIGTERM");
+    const trailingData = terminal.decoder.end();
+    if (trailingData) mainWindow?.webContents.send(`terminal:data:${id}`, trailingData);
     const payload: TerminalExitPayload = { id, exitCode, signal };
     mainWindow?.webContents.send(`terminal:exit:${id}`, payload);
     terminals.delete(id);

@@ -61,8 +61,8 @@ const sidebarWidthStorageKey = "shellx.sidebarWidth";
 const sidebarMinWidth = 240;
 const sidebarMaxWidth = 520;
 const sidebarCollapsedWidth = 0;
-const terminalRightReservePixels = 24;
-const terminalScrollbarReservePixels = 4;
+const terminalMinimumRightReservePixels = 28;
+const terminalScrollbarTextGapPixels = 12;
 const terminalPtyRightGuardColumns = 1;
 const sessionDoubleClickIntervalMs = 1200;
 const sessionSingleClickDelayMs = 320;
@@ -86,8 +86,12 @@ const uid = () => crypto.randomUUID();
 const text = (value: unknown) => String(value ?? "");
 const cleanTags = (value: string) => Array.from(new Set(value.split(/[，,\n]/).map((item) => item.trim()).filter(Boolean))).slice(0, 12);
 const passwordPromptPattern = /(?:^|[\r\n\s])(?:password|passphrase)(?:\s+for\s+[^:]+)?:\s*$/i;
+const zmodemStartMarker = "**\x18B0";
 const zmodemPattern = /\*\*\x18B0/;
-const zmodemUploadHintPattern = /rz\s+(waiting|ready|receive)|receive\s+zmodem|\brz\b/i;
+const zmodemUploadFramePattern = /\*\*\x18B01/;
+const zmodemDownloadFramePattern = /\*\*\x18B00/;
+const zmodemDownloadAutoStartPattern = /rz\r?\n?\*\*\x18B00/;
+const zmodemUploadHintPattern = /(?:rz\s+(?:waiting|ready|receive)|waiting\s+to\s+receive|receive\s+zmodem)/i;
 const rzWaitingLinePattern = /(?:^|[\r\n])[^\r\n]*(?:rz\s+)?waiting\s+to\s+receive\.[^\r\n]*/i;
 
 function keychainAccount(session: SSHSessionProfile): string {
@@ -236,7 +240,9 @@ function terminalCellSize(terminal: Terminal): { width: number; height: number }
   return { width: dimensions.width, height: dimensions.height };
 }
 
-function terminalViewportScrollbarWidth(terminal: Terminal): number {
+function terminalScrollbarWidth(terminal: Terminal): number {
+  const scrollbar = terminal.element?.querySelector<HTMLElement>(".xterm-scrollable-element > .scrollbar.vertical");
+  if (scrollbar) return Math.max(0, scrollbar.offsetWidth || Number.parseFloat(scrollbar.style.width) || 0);
   const viewport = terminal.element?.querySelector<HTMLElement>(".xterm-viewport");
   if (!viewport) return 0;
   return Math.max(0, viewport.offsetWidth - viewport.clientWidth);
@@ -247,7 +253,7 @@ function terminalSizeFromFit(terminal: Terminal, fitAddon: FitAddon): Pick<Creat
   if (!measured) return terminalSizeHint();
   const parent = terminal.element?.parentElement;
   const cell = terminalCellSize(terminal);
-  const rightReserve = Math.max(terminalRightReservePixels, terminalViewportScrollbarWidth(terminal) + terminalScrollbarReservePixels);
+  const rightReserve = Math.max(terminalMinimumRightReservePixels, terminalScrollbarWidth(terminal) + terminalScrollbarTextGapPixels);
   const measuredCols = parent && cell ? Math.floor(Math.max(0, parent.clientWidth - rightReserve) / cell.width) : Math.floor(measured.cols);
   return {
     initialCols: Math.max(20, Math.min(400, measuredCols)),
@@ -325,9 +331,18 @@ function terminalHost(tab?: TerminalTab): string {
 
 function displayableTerminalData(data: string): string {
   if (!zmodemPattern.test(data)) return data;
-  return data
-    .replace(rzWaitingLinePattern, "")
-    .replace(/\*\*\x18B0[^\r\n]*/g, "");
+  const startIndex = data.search(zmodemPattern);
+  const beforeStart = data.slice(0, startIndex).replace(/(?:^|[\r\n])rz\r?\n?$/g, "");
+  return beforeStart.replace(rzWaitingLinePattern, "");
+}
+
+function zmodemDirection(data: string, recentOutput: string): "upload" | "download" {
+  const context = `${recentOutput.slice(-512)}${data}`;
+  const startIndex = context.lastIndexOf(zmodemStartMarker);
+  const triggerContext = startIndex >= 0 ? context.slice(Math.max(0, startIndex - 160), startIndex + 16) : context;
+  if (zmodemDownloadAutoStartPattern.test(triggerContext) || zmodemDownloadFramePattern.test(triggerContext)) return "download";
+  if (zmodemUploadFramePattern.test(triggerContext)) return "upload";
+  return zmodemUploadHintPattern.test(triggerContext) ? "upload" : "download";
 }
 
 async function copyActiveHost(): Promise<void> {
@@ -1215,7 +1230,7 @@ function insertTab(id: string, tab: TerminalTab, insertAfterTabID?: string): voi
 async function maybeStartZmodem(tab: TerminalTab, data: string): Promise<void> {
   if (tab.zmodemActive || tab.zmodemHandled || !zmodemPattern.test(data)) return;
   tab.zmodemHandled = true;
-  const isUpload = zmodemUploadHintPattern.test(tab.recentOutput);
+  const isUpload = zmodemDirection(data, tab.recentOutput) === "upload";
   if (isUpload) {
     const result = await window.shellx.dialog.openPath({ multiple: true });
     if (result.canceled || result.filePaths.length === 0) { cancelPendingZmodem(tab); setStatus("已取消 lrzsz 上传", false, true); return; }
