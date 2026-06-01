@@ -1175,17 +1175,19 @@ async function openTerminal(request: CreateTerminalRequest, titleOverride?: stri
   const disposeData = window.shellx.terminal.onData(id, (data) => {
     const tab = tabs.get(id);
     const displayData = displayableTerminalData(data);
+    const hasZmodemMarker = zmodemPattern.test(data);
+    const fallbackZmodemDirection = tab && hasZmodemMarker ? zmodemDirection(data, tab.recentOutput) : undefined;
     if (displayData) terminal.write(displayData);
     if (tab) {
-      tab.recentOutput = `${tab.recentOutput}${data}`.slice(-4096);
+      tab.recentOutput = `${tab.recentOutput}${displayData}`.slice(-4096);
       if (tab.connecting) {
         tab.connecting = false;
         if (activeTabID === id) setStatus(defaultStatusForTab(tab), false, false);
         renderTabs();
       }
       void handlePasswordPrompt(tab);
-      if (!zmodemPattern.test(data) && !tab.zmodemActive) tab.zmodemHandled = false;
-      void maybeStartZmodem(tab, data);
+      if (!hasZmodemMarker && !tab.zmodemActive) tab.zmodemHandled = false;
+      if (fallbackZmodemDirection) void maybeStartZmodem(tab, fallbackZmodemDirection);
     }
     if (tab && activeTabID !== id) {
       tab.unread = true;
@@ -1204,9 +1206,16 @@ async function openTerminal(request: CreateTerminalRequest, titleOverride?: stri
   const disposeZmodem = window.shellx.terminal.onZmodemStatus(id, (payload) => {
     const tab = tabs.get(id);
     if (!tab) return;
+    if (payload.state === "detected") {
+      tab.transferMessage = payload.message;
+      if (activeTabID === id) setStatus(payload.message, true, false);
+      void maybeStartZmodem(tab, payload.direction);
+      return;
+    }
     tab.zmodemActive = payload.state === "started";
     tab.transferMessage = payload.message;
     if (payload.state === "finished") tab.zmodemHandled = false;
+    if (payload.state === "failed") tab.terminal.write(`\r\n[ShellX] ${payload.message}\r\n`);
     if (activeTabID === id) setStatus(payload.message, payload.state === "started", payload.state !== "started");
   });
   insertTab(id, { id, title: titleOverride ?? title, subtitle, request, terminal, fitAddon, pane, disposeData, disposeExit, disposeZmodem, connecting: true, exited: false, pinned: false, unread: false, attention: "normal", recentOutput: "", passwordAutofillAttempted: false, passwordPromptPending: false, zmodemActive: false, zmodemHandled: false, transferMessage: "" }, insertAfterTabID);
@@ -1227,10 +1236,10 @@ function insertTab(id: string, tab: TerminalTab, insertAfterTabID?: string): voi
   }
 }
 
-async function maybeStartZmodem(tab: TerminalTab, data: string): Promise<void> {
-  if (tab.zmodemActive || tab.zmodemHandled || !zmodemPattern.test(data)) return;
+async function maybeStartZmodem(tab: TerminalTab, direction: "upload" | "download"): Promise<void> {
+  if (tab.zmodemActive || tab.zmodemHandled) return;
   tab.zmodemHandled = true;
-  const isUpload = zmodemDirection(data, tab.recentOutput) === "upload";
+  const isUpload = direction === "upload";
   if (isUpload) {
     const result = await window.shellx.dialog.openPath({ multiple: true });
     if (result.canceled || result.filePaths.length === 0) { cancelPendingZmodem(tab); setStatus("已取消 lrzsz 上传", false, true); return; }

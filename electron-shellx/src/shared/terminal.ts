@@ -130,7 +130,7 @@ export interface TerminalExitPayload {
 
 export interface ZmodemStatusPayload {
   id: string;
-  state: "started" | "finished" | "failed";
+  state: "detected" | "started" | "finished" | "failed";
   direction: "upload" | "download";
   message: string;
 }

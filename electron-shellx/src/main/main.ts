@@ -38,9 +38,14 @@ interface ManagedTerminal {
   pendingZmodemInput?: Buffer[];
   pendingZmodemInputBytes?: number;
   pendingZmodemScanTail?: Buffer;
+  pendingZmodemNotified?: boolean;
   transfer?: {
     direction: "upload" | "download";
     child: ChildProcessWithoutNullStreams;
+    downloadRemoteFinSeen?: boolean;
+    downloadFinReplySent?: boolean;
+    downloadRemoteReturnedToShell?: boolean;
+    downloadHelperOOSent?: boolean;
   };
 }
 
@@ -48,7 +53,12 @@ const terminals = new Map<string, ManagedTerminal>();
 let mainWindow: BrowserWindow | null = null;
 let didCreateMainWindow = false;
 let pendingDownloadedUpdate: { assetPath: string; latestVersion: string } | null = null;
-const zmodemStartBytes = Buffer.from("**\x18B0", "binary");
+const zmodemIntroBytes = Buffer.from("**\x18", "binary");
+const zmodemHeaderEncodingBytes = new Set([0x41, 0x42, 0x43]);
+const zmodemFrameTypePrefixByte = 0x30;
+const zmodemFrameTypeDownload = 0x30;
+const zmodemFrameTypeUpload = 0x31;
+const zmodemFrameTypeFin = 0x38;
 const zmodemCancelBytes = Buffer.from("\x18\x18\x18\x18\x18\x08\x08\x08\x08\x08\x03", "binary");
 const pendingZmodemInputLimit = 1024 * 1024;
 const shellToolPath = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"].join(":");
@@ -891,14 +901,18 @@ function createPty(request: CreateTerminalRequest): ManagedTerminal {
     const chunk = Buffer.isBuffer(data) ? data : Buffer.from(data, "utf8");
     const activeTransfer = terminal.transfer;
     if (activeTransfer) {
-      activeTransfer.child.stdin.write(chunk);
+      writeZmodemTransferRemoteData(terminal, activeTransfer.child, activeTransfer.direction, chunk);
       return;
     }
-    rememberPendingZmodemInput(terminal, chunk);
-    mainWindow?.webContents.send(`terminal:data:${id}`, terminal.decoder.write(chunk));
+    const displayChunk = rememberPendingZmodemInput(terminal, chunk);
+    if (displayChunk?.length) sendTerminalData(terminal, displayChunk);
   });
   ptyProcess.onExit(({ exitCode, signal }) => {
     terminal.transfer?.child.kill("SIGTERM");
+    if (!terminal.pendingZmodemInput && terminal.pendingZmodemScanTail?.length) {
+      sendTerminalData(terminal, terminal.pendingZmodemScanTail);
+      terminal.pendingZmodemScanTail = undefined;
+    }
     const trailingData = terminal.decoder.end();
     if (trailingData) mainWindow?.webContents.send(`terminal:data:${id}`, trailingData);
     const payload: TerminalExitPayload = { id, exitCode, signal };
@@ -913,31 +927,120 @@ function zmodemStatus(payload: ZmodemStatusPayload): void {
   mainWindow?.webContents.send(`terminal:zmodem:${payload.id}`, payload);
 }
 
-function rememberPendingZmodemInput(terminal: ManagedTerminal, chunk: Buffer): void {
+function sendTerminalData(terminal: ManagedTerminal, chunk: Buffer): void {
   if (chunk.length === 0) return;
+  const decoded = terminal.decoder.write(chunk);
+  if (decoded) mainWindow?.webContents.send(`terminal:data:${terminal.id}`, decoded);
+}
+
+function findZmodemIntroIndex(buffer: Buffer): number {
+  let searchFrom = 0;
+  while (searchFrom < buffer.length) {
+    const introIndex = buffer.indexOf(zmodemIntroBytes, searchFrom);
+    if (introIndex === -1) return -1;
+    const encodingByte = buffer[introIndex + zmodemIntroBytes.length];
+    if (encodingByte !== undefined && zmodemHeaderEncodingBytes.has(encodingByte)) return introIndex;
+    searchFrom = introIndex + 1;
+  }
+  return -1;
+}
+
+function zmodemFrameTypeAt(buffer: Buffer, introIndex: number): number | undefined {
+  const frameTypePrefix = buffer[introIndex + zmodemIntroBytes.length + 1];
+  const frameType = buffer[introIndex + zmodemIntroBytes.length + 2];
+  return frameTypePrefix === zmodemFrameTypePrefixByte ? frameType : undefined;
+}
+
+function findZmodemFrameIndex(buffer: Buffer, frameType: number): number {
+  let searchFrom = 0;
+  while (searchFrom < buffer.length) {
+    const introIndex = findZmodemIntroIndex(buffer.subarray(searchFrom));
+    if (introIndex === -1) return -1;
+    const absoluteIntroIndex = searchFrom + introIndex;
+    if (zmodemFrameTypeAt(buffer, absoluteIntroIndex) === frameType) return absoluteIntroIndex;
+    searchFrom = absoluteIntroIndex + 1;
+  }
+  return -1;
+}
+
+function zmodemFrameEndIndex(buffer: Buffer, introIndex: number): number {
+  for (let index = introIndex + zmodemIntroBytes.length + 3; index < buffer.length; index += 1) {
+    if (buffer[index] === 0x0d) return Math.min(buffer.length, index + 2);
+  }
+  return buffer.length;
+}
+
+function zmodemPartialIntroTailLength(buffer: Buffer): number {
+  const maxLength = Math.min(zmodemIntroBytes.length - 1, buffer.length);
+  for (let length = maxLength; length > 0; length -= 1) {
+    const offset = buffer.length - length;
+    let matches = true;
+    for (let index = 0; index < length; index += 1) {
+      if (buffer[offset + index] !== zmodemIntroBytes[index]) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) return length;
+  }
+  return 0;
+}
+
+function zmodemDirectionFromBuffer(buffer: Buffer): "upload" | "download" | undefined {
+  const startIndex = findZmodemIntroIndex(buffer);
+  if (startIndex === -1) return undefined;
+  const frameType = zmodemFrameTypeAt(buffer, startIndex);
+  if (frameType === zmodemFrameTypeUpload) return "upload";
+  if (frameType === zmodemFrameTypeDownload) return "download";
+  return undefined;
+}
+
+function notifyPendingZmodem(terminal: ManagedTerminal): void {
+  if (terminal.pendingZmodemNotified) return;
+  const chunks = terminal.pendingZmodemInput;
+  if (!chunks || chunks.length === 0) return;
+  const direction = zmodemDirectionFromBuffer(Buffer.concat(chunks));
+  if (!direction) return;
+  terminal.pendingZmodemNotified = true;
+  zmodemStatus({
+    id: terminal.id,
+    direction,
+    state: "detected",
+    message: direction === "upload" ? "检测到远端 rz，准备上传" : "检测到远端 sz，准备下载"
+  });
+}
+
+function rememberPendingZmodemInput(terminal: ManagedTerminal, chunk: Buffer): Buffer | undefined {
+  if (chunk.length === 0) return chunk;
 
   if (!terminal.pendingZmodemInput) {
     const scanChunk = terminal.pendingZmodemScanTail?.length ? Buffer.concat([terminal.pendingZmodemScanTail, chunk]) : chunk;
-    const startIndex = scanChunk.indexOf(zmodemStartBytes);
+    const startIndex = findZmodemIntroIndex(scanChunk);
     if (startIndex === -1) {
-      terminal.pendingZmodemScanTail = chunk.subarray(Math.max(0, chunk.length - zmodemStartBytes.length + 1));
-      return;
+      const tailLength = zmodemPartialIntroTailLength(scanChunk);
+      terminal.pendingZmodemScanTail = tailLength > 0 ? scanChunk.subarray(scanChunk.length - tailLength) : undefined;
+      const displayChunk = tailLength > 0 ? scanChunk.subarray(0, scanChunk.length - tailLength) : scanChunk;
+      return displayChunk.length > 0 ? displayChunk : undefined;
     }
 
     terminal.pendingZmodemScanTail = undefined;
     terminal.pendingZmodemInput = [scanChunk.subarray(startIndex)];
     terminal.pendingZmodemInputBytes = terminal.pendingZmodemInput[0]?.length ?? 0;
-    return;
+    notifyPendingZmodem(terminal);
+    return startIndex > 0 ? scanChunk.subarray(0, startIndex) : undefined;
   }
 
   terminal.pendingZmodemInput ??= [];
   terminal.pendingZmodemInput.push(chunk);
   terminal.pendingZmodemInputBytes = (terminal.pendingZmodemInputBytes ?? 0) + chunk.length;
+  notifyPendingZmodem(terminal);
 
   while ((terminal.pendingZmodemInputBytes ?? 0) > pendingZmodemInputLimit && terminal.pendingZmodemInput.length > 1) {
     const dropped = terminal.pendingZmodemInput.shift();
     terminal.pendingZmodemInputBytes = (terminal.pendingZmodemInputBytes ?? 0) - (dropped?.length ?? 0);
   }
+
+  return undefined;
 }
 
 function consumePendingZmodemInput(terminal: ManagedTerminal): Buffer | undefined {
@@ -945,6 +1048,7 @@ function consumePendingZmodemInput(terminal: ManagedTerminal): Buffer | undefine
   terminal.pendingZmodemInput = undefined;
   terminal.pendingZmodemInputBytes = undefined;
   terminal.pendingZmodemScanTail = undefined;
+  terminal.pendingZmodemNotified = undefined;
   if (!chunks || chunks.length === 0) return undefined;
   return Buffer.concat(chunks);
 }
@@ -969,6 +1073,107 @@ function cancelZmodemTransfer(terminal: ManagedTerminal, id: string, message: st
   zmodemStatus({ id, direction: activeTransfer?.direction ?? "download", state: "failed", message });
 }
 
+function failZmodemTransfer(terminal: ManagedTerminal, child: ChildProcessWithoutNullStreams, direction: "upload" | "download", message: string): void {
+  if (terminal.transfer?.child !== child) return;
+  terminal.transfer = undefined;
+  child.kill("SIGTERM");
+  terminal.ptyProcess.write(zmodemCancelBytes);
+  zmodemStatus({ id: terminal.id, direction, state: "failed", message });
+}
+
+function writeZmodemHelperInput(terminal: ManagedTerminal, child: ChildProcessWithoutNullStreams, direction: "upload" | "download", chunk: Buffer): void {
+  if (terminal.transfer?.child !== child) return;
+  if (child.stdin.destroyed || child.stdin.writableEnded || !child.stdin.writable) {
+    failZmodemTransfer(terminal, child, direction, "lrzsz 本地 helper 管道已关闭");
+    return;
+  }
+  try {
+    child.stdin.write(chunk);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    failZmodemTransfer(terminal, child, direction, `lrzsz 本地 helper 写入失败：${message}`);
+  }
+}
+
+function sendDownloadHelperOO(terminal: ManagedTerminal, child: ChildProcessWithoutNullStreams): void {
+  const activeTransfer = terminal.transfer;
+  if (!activeTransfer || activeTransfer.child !== child || activeTransfer.direction !== "download" || activeTransfer.downloadHelperOOSent) return;
+  activeTransfer.downloadHelperOOSent = true;
+  writeZmodemHelperInput(terminal, child, "download", Buffer.from("OO", "ascii"));
+}
+
+function writeZmodemDownloadRemoteData(terminal: ManagedTerminal, child: ChildProcessWithoutNullStreams, chunk: Buffer): void {
+  const activeTransfer = terminal.transfer;
+  if (!activeTransfer || activeTransfer.child !== child || activeTransfer.direction !== "download") return;
+
+  if (activeTransfer.downloadRemoteFinSeen) {
+    activeTransfer.downloadRemoteReturnedToShell = true;
+    sendTerminalData(terminal, chunk);
+    sendDownloadHelperOO(terminal, child);
+    return;
+  }
+
+  const finIndex = findZmodemFrameIndex(chunk, zmodemFrameTypeFin);
+  if (finIndex === -1) {
+    writeZmodemHelperInput(terminal, child, "download", chunk);
+    return;
+  }
+
+  const protocolEndIndex = zmodemFrameEndIndex(chunk, finIndex);
+  const protocolChunk = chunk.subarray(0, protocolEndIndex);
+  activeTransfer.downloadRemoteFinSeen = true;
+  writeZmodemHelperInput(terminal, child, "download", protocolChunk);
+
+  const displayChunk = chunk.subarray(protocolEndIndex);
+  if (displayChunk.length) {
+    activeTransfer.downloadRemoteReturnedToShell = true;
+    sendTerminalData(terminal, displayChunk);
+    sendDownloadHelperOO(terminal, child);
+  }
+}
+
+function writeZmodemTransferRemoteData(terminal: ManagedTerminal, child: ChildProcessWithoutNullStreams, direction: "upload" | "download", chunk: Buffer): void {
+  if (direction === "download") {
+    writeZmodemDownloadRemoteData(terminal, child, chunk);
+    return;
+  }
+  writeZmodemHelperInput(terminal, child, direction, chunk);
+}
+
+function writeZmodemRemoteInput(terminal: ManagedTerminal, child: ChildProcessWithoutNullStreams, direction: "upload" | "download", chunk: Buffer): void {
+  const activeTransfer = terminal.transfer;
+  if (activeTransfer?.child !== child) return;
+
+  if (direction === "download") {
+    const finIndex = findZmodemFrameIndex(chunk, zmodemFrameTypeFin);
+    if (finIndex !== -1) {
+      activeTransfer.downloadRemoteFinSeen = true;
+      if (!activeTransfer.downloadRemoteReturnedToShell && !activeTransfer.downloadFinReplySent) {
+        const finEndIndex = zmodemFrameEndIndex(chunk, finIndex);
+        activeTransfer.downloadFinReplySent = true;
+        try {
+          terminal.ptyProcess.write(chunk.subarray(finIndex, finEndIndex));
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          failZmodemTransfer(terminal, child, direction, `lrzsz 写入远端失败：${message}`);
+        }
+      }
+      return;
+    }
+
+    if (activeTransfer.downloadRemoteFinSeen) {
+      return;
+    }
+  }
+
+  try {
+    terminal.ptyProcess.write(chunk);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    failZmodemTransfer(terminal, child, direction, `lrzsz 写入远端失败：${message}`);
+  }
+}
+
 function startZmodemTransfer(id: string, direction: "upload" | "download", args: string[], cwd?: string): { ok: boolean; message: string } {
   const terminal = terminals.get(id);
   if (!terminal) return { ok: false, message: "终端不存在" };
@@ -977,8 +1182,10 @@ function startZmodemTransfer(id: string, direction: "upload" | "download", args:
   const command = args[0];
   const resolvedCommand = command ? resolveShellTool(command) : undefined;
   if (!command || !resolvedCommand) {
+    const message = `本机未找到 ${command || "lrzsz"}，请先安装 lrzsz`;
     terminal.ptyProcess.write(zmodemCancelBytes);
-    return { ok: false, message: `本机未找到 ${command || "lrzsz"}，请先安装 lrzsz` };
+    zmodemStatus({ id, direction, state: "failed", message });
+    return { ok: false, message };
   }
 
   const child = spawn(resolvedCommand, args.slice(1), { cwd, env: { ...process.env, PATH: `${shellToolPath}:${process.env.PATH ?? ""}` } });
@@ -987,11 +1194,14 @@ function startZmodemTransfer(id: string, direction: "upload" | "download", args:
   let stderrText = "";
 
   zmodemStatus({ id, direction, state: "started", message: `lrzsz ${label}已开始` });
-  if (pendingInput?.length) child.stdin.write(pendingInput);
-  child.stdout.on("data", (chunk: Buffer) => terminal.ptyProcess.write(chunk));
+  if (pendingInput?.length) writeZmodemHelperInput(terminal, child, direction, pendingInput);
+  child.stdout.on("data", (chunk: Buffer) => writeZmodemRemoteInput(terminal, child, direction, chunk));
   child.stderr.on("data", (chunk: Buffer) => {
     stderrText = `${stderrText}${chunk.toString("utf8")}`.slice(-1000);
     zmodemStatus({ id, direction, state: "started", message: chunk.toString("utf8").trim() || `lrzsz ${label}中` });
+  });
+  child.stdin.on("error", (error: NodeJS.ErrnoException) => {
+    failZmodemTransfer(terminal, child, direction, `lrzsz ${label}中断：${error.message}`);
   });
   child.on("close", (code) => {
     if (terminal.transfer?.child !== child) return;
