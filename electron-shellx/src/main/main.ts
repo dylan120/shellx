@@ -46,6 +46,8 @@ interface ManagedTerminal {
     downloadFinReplySent?: boolean;
     downloadRemoteReturnedToShell?: boolean;
     downloadHelperOOSent?: boolean;
+    uploadRemoteReturnedToShell?: boolean;
+    uploadHelperOOSent?: boolean;
   };
 }
 
@@ -853,7 +855,7 @@ function remoteLocaleEnvironment(): string[] {
 
 function sshArgs(request: Extract<CreateTerminalRequest, { kind: "ssh" }>): string[] {
   const destination = request.username ? `${request.username}@${request.host}` : request.host;
-  const args = ["-tt", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3", "-o", "StrictHostKeyChecking=accept-new"];
+  const args = ["-tt", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3", "-o", "StrictHostKeyChecking=accept-new", "-o", "EscapeChar=none"];
   args.push(...forwardedSSHEnvironmentArgs());
   if (request.port) args.push("-p", String(request.port));
   if (request.identityFile) args.push("-i", request.identityFile);
@@ -1137,12 +1139,66 @@ function writeZmodemTransferRemoteData(terminal: ManagedTerminal, child: ChildPr
     writeZmodemDownloadRemoteData(terminal, child, chunk);
     return;
   }
-  writeZmodemHelperInput(terminal, child, direction, chunk);
+  writeZmodemUploadRemoteData(terminal, child, chunk);
+}
+
+function stripAnsiSequences(value: string): string {
+  return value
+    .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "")
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
+}
+
+function looksLikeRemoteShellOutput(chunk: Buffer): boolean {
+  if (findZmodemIntroIndex(chunk) !== -1) return false;
+  if (chunk.includes(0x00)) return false;
+  const text = stripAnsiSequences(chunk.toString("utf8"));
+  if (/\b(?:command not found|event not found|No such file|There are stopped jobs|Permission denied)\b/i.test(text)) return true;
+  if (/(?:^|[\r\n])[^\r\n]{0,160}[#$] $/.test(text)) return true;
+
+  let printableBytes = 0;
+  let escapeBytes = 0;
+  for (const byte of chunk) {
+    if (byte === 0x09 || byte === 0x0a || byte === 0x0d || byte === 0x1b || byte === 0x07 || (byte >= 0x20 && byte <= 0x7e)) printableBytes += 1;
+    if (byte === 0x18) escapeBytes += 1;
+  }
+  if (chunk.length > 0 && escapeBytes / chunk.length > 0.02) return false;
+  return chunk.length > 0 && printableBytes / chunk.length > 0.85 && /[\r\n]/.test(text) && /(?:bash|zsh|sh|\$|#|error|failed)/i.test(text);
+}
+
+function stopUploadAfterRemoteShellReturn(terminal: ManagedTerminal, child: ChildProcessWithoutNullStreams, chunk: Buffer): void {
+  const activeTransfer = terminal.transfer;
+  if (!activeTransfer || activeTransfer.child !== child || activeTransfer.direction !== "upload") return;
+  activeTransfer.uploadRemoteReturnedToShell = true;
+  sendTerminalData(terminal, chunk);
+  if (activeTransfer.uploadHelperOOSent) return;
+
+  terminal.transfer = undefined;
+  child.kill("SIGTERM");
+  zmodemStatus({ id: terminal.id, direction: "upload", state: "finished", message: "lrzsz 上传完成" });
+}
+
+function writeZmodemUploadRemoteData(terminal: ManagedTerminal, child: ChildProcessWithoutNullStreams, chunk: Buffer): void {
+  const activeTransfer = terminal.transfer;
+  if (!activeTransfer || activeTransfer.child !== child || activeTransfer.direction !== "upload") return;
+  if (activeTransfer.uploadRemoteReturnedToShell) {
+    sendTerminalData(terminal, chunk);
+    return;
+  }
+  if (looksLikeRemoteShellOutput(chunk)) {
+    stopUploadAfterRemoteShellReturn(terminal, child, chunk);
+    return;
+  }
+  writeZmodemHelperInput(terminal, child, "upload", chunk);
 }
 
 function writeZmodemRemoteInput(terminal: ManagedTerminal, child: ChildProcessWithoutNullStreams, direction: "upload" | "download", chunk: Buffer): void {
   const activeTransfer = terminal.transfer;
   if (activeTransfer?.child !== child) return;
+
+  if (direction === "upload") {
+    if (activeTransfer.uploadRemoteReturnedToShell) return;
+    if (chunk.equals(Buffer.from("OO", "ascii"))) activeTransfer.uploadHelperOOSent = true;
+  }
 
   if (direction === "download") {
     const finIndex = findZmodemFrameIndex(chunk, zmodemFrameTypeFin);
@@ -1315,11 +1371,11 @@ ipcMain.handle("terminal:create", (_event, request: CreateTerminalRequest): Crea
 ipcMain.handle("terminal:zmodemUpload", (_event, payload: { id: string; filePaths: string[] }) => {
   const filePaths = payload.filePaths.filter(Boolean);
   if (filePaths.length === 0) return { ok: false, message: "未选择上传文件" };
-  return startZmodemTransfer(payload.id, "upload", ["sz", "-b", ...filePaths]);
+  return startZmodemTransfer(payload.id, "upload", ["sz", "-b", "-e", ...filePaths]);
 });
 ipcMain.handle("terminal:zmodemDownload", (_event, payload: { id: string; directory: string }) => {
   if (!payload.directory) return { ok: false, message: "未选择下载目录" };
-  return startZmodemTransfer(payload.id, "download", ["rz", "-b", "-E"], payload.directory);
+  return startZmodemTransfer(payload.id, "download", ["rz", "-b", "-e", "-E"], payload.directory);
 });
 ipcMain.on("terminal:write", (_event, payload: { id: string; data: string }) => {
   const terminal = terminals.get(payload.id);
