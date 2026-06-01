@@ -1,0 +1,52 @@
+{
+  "name": "shellx-electron",
+  "version": "1.2.2",
+  "private": true,
+  "type": "module",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "dev": "npm run build:main && concurrently -k \"npm:watch:main\" \"vite --host 127.0.0.1\" \"wait-on tcp:5173 dist/main/main.js && electron .\"",
+    "build": "npm run build:main && vite build",
+    "build:main": "tsc -p tsconfig.main.json",
+    "start": "npm run build && electron .",
+    "start:app": "npm run package:dir && open -n release/mac-arm64/ShellX.app",
+    "generate:icon": "mkdir -p assets && node scripts/generate-icon.mjs && iconutil -c icns build/icon.iconset -o assets/icon.icns",
+    "package:dir": "npm run generate:icon && npm run build && electron-builder --mac dir && codesign --force --deep --sign - release/mac-arm64/ShellX.app && xattr -cr release/mac-arm64/ShellX.app",
+    "watch:main": "tsc -p tsconfig.main.json --watch --preserveWatchOutput",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.main.json --noEmit"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "node-pty": "^1.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "concurrently": "^9.2.1",
+    "electron": "^42.3.0",
+    "electron-builder": "^26.0.12",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.4",
+    "wait-on": "^9.0.3"
+  },
+  "build": {
+    "appId": "com.example.ShellX",
+    "productName": "ShellX",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "assets/icon.icns",
+      "package.json"
+    ],
+    "mac": {
+      "identity": null,
+      "icon": "assets/icon.icns",
+      "category": "public.app-category.developer-tools",
+      "target": [
+        "dir"
+      ]
+    }
+  }
+}
