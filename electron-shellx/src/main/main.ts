@@ -855,6 +855,22 @@ function localShellArgs(shell: string): string[] {
   return [];
 }
 
+function terminalEnvironment(request: CreateTerminalRequest, localShell?: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  if (request.kind === "local") {
+    delete env.NO_COLOR;
+    env.CLICOLOR = env.CLICOLOR || "1";
+  }
+  return {
+    ...env,
+    TERM: "xterm-256color",
+    COLORTERM: "truecolor",
+    LANG: env.LANG || "en_US.UTF-8",
+    LC_CTYPE: env.LC_CTYPE || "en_US.UTF-8",
+    ...(localShell ? { SHELL: localShell } : {})
+  };
+}
+
 function proxyEnvironment(forwarding?: RemoteNetworkForwarding): string[] {
   if (!forwarding?.isEnabled || !forwarding.setProxyEnvironment) return [];
   const proxyHost = ["", "0.0.0.0", "::", "*"].includes(forwarding.bindAddress.trim()) ? "127.0.0.1" : forwarding.bindAddress.trim();
@@ -905,7 +921,7 @@ function sshArgs(request: Extract<CreateTerminalRequest, { kind: "ssh" }>): stri
 function createPty(request: CreateTerminalRequest): ManagedTerminal {
   const id = randomUUID();
   const localShell = request.kind === "local" ? shellPath(request) : undefined;
-  const env = { ...process.env, TERM: "xterm-256color", COLORTERM: "truecolor", LANG: process.env.LANG || "en_US.UTF-8", LC_CTYPE: process.env.LC_CTYPE || "en_US.UTF-8", ...(localShell ? { SHELL: localShell } : {}) };
+  const env = terminalEnvironment(request, localShell);
   const options: pty.IPtyForkOptions = {
     name: "xterm-256color",
     cols: Math.max(20, Math.min(400, Math.round(request.initialCols ?? 100))),

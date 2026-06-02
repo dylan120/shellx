@@ -99,6 +99,7 @@ npm run package:dir
 - 默认打开的“本机终端”会以非 login shell 方式启动；复制出来的新本机终端标签同样使用非 login shell，避免重复加载 login 初始化逻辑
 - 本机终端启动时会同步更新子进程的 `SHELL` 环境变量，使其与实际启动的 shell 一致，避免 `echo $SHELL` 与真实进程不一致
 - 本机终端启动时会优先继承宿主进程已有的 `LANG` / `LC_ALL` / `LC_CTYPE`；若图形环境未提供 locale，则兜底为 UTF-8，避免 `ls` 等命令显示中文目录名乱码
+- 本机交互终端会移除宿主进程继承来的 `NO_COLOR`，并保留 `TERM=xterm-256color` / `COLORTERM=truecolor`，避免 Codex CLI 等工具因环境变量禁用 ANSI 彩色输出。
 - 终端子进程启动时会使用当前视图的实际列数和行数创建 PTY；拖动调整窗口大小后，也会把最新尺寸同步给 PTY，让 shell、长行输出和常见 TUI 程序按新窗口宽高重排
 - Electron 新版终端会先按 xterm 实际测量结果创建 PTY，并在创建、切换标签、窗口拖拽缩放和侧栏展开/收起时实时重新 fit；可视终端按 xterm 自定义滚动条和右侧字形溢出安全区换算，PTY 列宽再少 1 列，避免 `ps aux` 等长行输出末端压到滚动条或最右绘制边界。
 - Electron 新版终端会固定 Chromium 页面缩放，避免误触页面级缩放后 xterm 字体测量、列宽和视觉密度突然变化；终端 ANSI 颜色继续交给 xterm.js 按远端控制序列原样渲染。
