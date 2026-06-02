@@ -1,6 +1,5 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
-import type { ITheme } from "@xterm/xterm";
 import type {
   AppSettings,
   AppSnapshot,
@@ -40,7 +39,6 @@ interface TerminalTab {
   zmodemActive: boolean;
   zmodemHandled: boolean;
   transferMessage: string;
-  renderRecoveryTimer: number | undefined;
 }
 
 type ViewMode = "terminal" | "detail";
@@ -66,8 +64,6 @@ const sidebarCollapsedWidth = 0;
 const terminalMinimumRightReservePixels = 28;
 const terminalScrollbarTextGapPixels = 12;
 const terminalPtyRightGuardColumns = 1;
-const terminalRenderRecoveryDelayMs = 80;
-const terminalProtectedColorOscCodes = [10, 11, 12, 110, 111, 112];
 const sessionDoubleClickIntervalMs = 1200;
 const sessionSingleClickDelayMs = 320;
 let sidebarCollapsed = localStorage.getItem(sidebarCollapsedStorageKey) === "true";
@@ -76,7 +72,6 @@ let lastSessionClick: { id: string; at: number } | null = null;
 let pendingSessionClickRenderTimer: number | undefined;
 let suppressNextSessionClickID: string | null = null;
 let terminalFitFrame: number | undefined;
-let observedDevicePixelRatio = window.devicePixelRatio || 1;
 
 interface AppCommandEvent {
   command: string;
@@ -90,28 +85,6 @@ const now = () => new Date().toISOString();
 const uid = () => crypto.randomUUID();
 const text = (value: unknown) => String(value ?? "");
 const cleanTags = (value: string) => Array.from(new Set(value.split(/[，,\n]/).map((item) => item.trim()).filter(Boolean))).slice(0, 12);
-const shellxTerminalTheme = (): ITheme => ({
-  background: "#0c0f11",
-  foreground: "#e7ecef",
-  cursor: "#f2c66d",
-  selectionBackground: "#31524e",
-  black: "#151a1e",
-  red: "#e66b6b",
-  green: "#67c783",
-  yellow: "#e7c66f",
-  blue: "#69a7e8",
-  magenta: "#c993e8",
-  cyan: "#62d2c8",
-  white: "#d8dee3",
-  brightBlack: "#66717a",
-  brightRed: "#ff8585",
-  brightGreen: "#84e39d",
-  brightYellow: "#f4d77d",
-  brightBlue: "#8fbeff",
-  brightMagenta: "#d9a8ff",
-  brightCyan: "#7ee9df",
-  brightWhite: "#f4f8fa"
-});
 const passwordPromptPattern = /(?:^|[\r\n\s])(?:password|passphrase)(?:\s+for\s+[^:]+)?:\s*$/i;
 const zmodemStartMarker = "**\x18B0";
 const zmodemPattern = /\*\*\x18B0/;
@@ -299,65 +272,6 @@ function ptyColsForTerminal(terminal: Terminal): number {
 
 function terminalPtySize(terminal: Terminal): Pick<CreateTerminalRequest, "initialCols" | "initialRows"> {
   return { initialCols: ptyColsForTerminal(terminal), initialRows: terminal.rows };
-}
-
-function restoreTerminalTheme(terminal: Terminal): void {
-  terminal.options.theme = shellxTerminalTheme();
-}
-
-function protectTerminalTheme(terminal: Terminal): void {
-  for (const code of terminalProtectedColorOscCodes) {
-    terminal.parser.registerOscHandler(code, (data) => {
-      if (data.includes("?")) return false;
-      restoreTerminalTheme(terminal);
-      return true;
-    });
-  }
-}
-
-function refreshTerminalDisplay(tab: TerminalTab, shouldFit = true): void {
-  if (!tab.pane.isConnected) return;
-  restoreTerminalTheme(tab.terminal);
-  try {
-    tab.terminal.clearTextureAtlas();
-  } catch {
-    // 非纹理渲染器会忽略这条恢复路径。
-  }
-  if (shouldFit && tab.pane.classList.contains("active")) fitAndSyncTerminal(tab);
-  if (tab.terminal.rows > 0) tab.terminal.refresh(0, tab.terminal.rows - 1);
-}
-
-function clearTerminalRenderRecovery(tab: TerminalTab): void {
-  if (!tab.renderRecoveryTimer) return;
-  window.clearTimeout(tab.renderRecoveryTimer);
-  tab.renderRecoveryTimer = undefined;
-}
-
-function scheduleTerminalRenderRecovery(tab: TerminalTab, shouldFit = true, delayMs = terminalRenderRecoveryDelayMs): void {
-  if (tab.renderRecoveryTimer) window.clearTimeout(tab.renderRecoveryTimer);
-  tab.renderRecoveryTimer = window.setTimeout(() => {
-    tab.renderRecoveryTimer = undefined;
-    window.requestAnimationFrame(() => refreshTerminalDisplay(tab, shouldFit));
-  }, delayMs);
-}
-
-function scheduleAllTerminalRenderRecovery(shouldFitActive = true): void {
-  for (const tab of tabs.values()) scheduleTerminalRenderRecovery(tab, shouldFitActive && tab.id === activeTabID);
-}
-
-function scheduleActiveTerminalRenderRecovery(shouldFit = true): void {
-  const active = activeTabID ? tabs.get(activeTabID) : undefined;
-  if (active) scheduleTerminalRenderRecovery(active, shouldFit);
-}
-
-function handleDisplayMetricChange(): void {
-  const nextDevicePixelRatio = window.devicePixelRatio || 1;
-  if (Math.abs(nextDevicePixelRatio - observedDevicePixelRatio) > 0.001) {
-    observedDevicePixelRatio = nextDevicePixelRatio;
-    scheduleAllTerminalRenderRecovery(true);
-    return;
-  }
-  scheduleActiveTerminalRenderRecovery(true);
 }
 
 function updateStatusbar(): void {
@@ -1151,20 +1065,13 @@ function activateTab(id: string, shouldRenderTabs = true): void {
       row.classList.toggle("active", row.dataset.tabId === id);
     }
   }
-  requestAnimationFrame(() => {
-    scheduleActiveTerminalFit();
-    if (active) {
-      active.terminal.focus();
-      scheduleTerminalRenderRecovery(active, true);
-    }
-  });
+  requestAnimationFrame(() => { scheduleActiveTerminalFit(); active?.terminal.focus(); });
 }
 
 function closeTab(id: string): void {
   const tab = tabs.get(id);
   if (!tab) return;
   if (!tab.exited && !confirm(`关闭终端 ${tab.title}？`)) return;
-  clearTerminalRenderRecovery(tab);
   tab.disposeData();
   tab.disposeExit();
   tab.disposeZmodem();
@@ -1200,7 +1107,6 @@ function closeTabsRightOf(id = activeTabID): void {
 function closeTabWithoutPrompt(id: string): void {
   const tab = tabs.get(id);
   if (!tab) return;
-  clearTerminalRenderRecovery(tab);
   tab.disposeData();
   tab.disposeExit();
   tab.disposeZmodem();
@@ -1244,11 +1150,10 @@ async function openTerminal(request: CreateTerminalRequest, titleOverride?: stri
   pane.classList.add("active");
   document.querySelector<HTMLDivElement>("#terminal-stack")?.append(pane);
   document.querySelector<HTMLDivElement>("#empty")?.remove();
-  const terminal = new Terminal({ cursorBlink: true, scrollback: snapshot.settings.terminalScrollback, fontFamily: "Menlo, Monaco, 'SF Mono', monospace", fontSize: 13, fontWeight: "400", fontWeightBold: "700", letterSpacing: 0, lineHeight: 1.18, drawBoldTextInBrightColors: true, customGlyphs: true, rescaleOverlappingGlyphs: true, macOptionIsMeta: true, reflowCursorLine: true, theme: shellxTerminalTheme() });
+  const terminal = new Terminal({ cursorBlink: true, scrollback: snapshot.settings.terminalScrollback, fontFamily: "Menlo, Monaco, 'SF Mono', monospace", fontSize: 13, lineHeight: 1.18, macOptionIsMeta: true, reflowCursorLine: true, theme: { background: "#0c0f11", foreground: "#e7ecef", cursor: "#f2c66d", selectionBackground: "#31524e" } });
   const fitAddon = new FitAddon();
   terminal.loadAddon(fitAddon);
   terminal.open(surface);
-  protectTerminalTheme(terminal);
   resizeTerminalToFit(terminal, fitAddon);
   const { id, title } = await window.shellx.terminal.create({ ...request, ...terminalPtySize(terminal) });
   pane.addEventListener("contextmenu", (event) => { event.preventDefault(); activateTab(id); menu("terminal", { id }); });
@@ -1313,7 +1218,7 @@ async function openTerminal(request: CreateTerminalRequest, titleOverride?: stri
     if (payload.state === "failed") tab.terminal.write(`\r\n[ShellX] ${payload.message}\r\n`);
     if (activeTabID === id) setStatus(payload.message, payload.state === "started", payload.state !== "started");
   });
-  insertTab(id, { id, title: titleOverride ?? title, subtitle, request, terminal, fitAddon, pane, disposeData, disposeExit, disposeZmodem, connecting: true, exited: false, pinned: false, unread: false, attention: "normal", recentOutput: "", passwordAutofillAttempted: false, passwordPromptPending: false, zmodemActive: false, zmodemHandled: false, transferMessage: "", renderRecoveryTimer: undefined }, insertAfterTabID);
+  insertTab(id, { id, title: titleOverride ?? title, subtitle, request, terminal, fitAddon, pane, disposeData, disposeExit, disposeZmodem, connecting: true, exited: false, pinned: false, unread: false, attention: "normal", recentOutput: "", passwordAutofillAttempted: false, passwordPromptPending: false, zmodemActive: false, zmodemHandled: false, transferMessage: "" }, insertAfterTabID);
   activateTab(id);
 }
 
@@ -1709,19 +1614,9 @@ async function handleAppCommand(event: AppCommandEvent): Promise<void> {
 
 const resizeObserver = new ResizeObserver(() => {
   scheduleActiveTerminalFit();
-  handleDisplayMetricChange();
 });
 
-window.addEventListener("resize", () => {
-  scheduleActiveTerminalFitAfterLayout();
-  handleDisplayMetricChange();
-});
-window.visualViewport?.addEventListener("resize", handleDisplayMetricChange);
-window.addEventListener("focus", () => scheduleActiveTerminalRenderRecovery(true));
-window.addEventListener("pageshow", () => scheduleAllTerminalRenderRecovery(true));
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible") scheduleAllTerminalRenderRecovery(true);
-});
+window.addEventListener("resize", scheduleActiveTerminalFitAfterLayout);
 window.addEventListener("pointermove", hideTabPreviewWhenPointerLeavesTabs, true);
 window.addEventListener("blur", hideTabPreview);
 
