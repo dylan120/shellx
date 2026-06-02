@@ -22,7 +22,7 @@ npm run package:dir
 - Session/folder/script/settings persistence in the Electron app support directory.
 - Local terminal tabs through the user's default shell.
 - SSH tabs through `/usr/bin/ssh`, including host, port, username, private key, startup command and remote forwarding options.
-- xterm.js fit/resize, tab switching, unread markers, close confirmation and process cleanup.
+- xterm.js fit/resize, fixed Chromium page zoom, explicit ANSI color palette, protected terminal theme, automatic renderer cache recovery, tab switching, unread markers, close confirmation and process cleanup.
 - Script library editing and non-interactive batch script execution over `/usr/bin/ssh` for key/agent based sessions.
 - Data import/export, theme settings, scrollback settings and optional selection-to-clipboard.
 - macOS Keychain helper IPC is used for password storage and automatic password prompt fill.

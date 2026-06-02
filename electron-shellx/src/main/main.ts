@@ -55,6 +55,8 @@ const terminals = new Map<string, ManagedTerminal>();
 let mainWindow: BrowserWindow | null = null;
 let didCreateMainWindow = false;
 let pendingDownloadedUpdate: { assetPath: string; latestVersion: string } | null = null;
+const fixedWebContentsZoomLevel = 0;
+const fixedWebContentsZoomFactor = 1;
 const zmodemIntroBytes = Buffer.from("**\x18", "binary");
 const zmodemHeaderEncodingBytes = new Set([0x41, 0x42, 0x43]);
 const zmodemFrameTypePrefixByte = 0x30;
@@ -431,6 +433,33 @@ function sendCommand(command: string, payload?: AppCommandPayload): void {
   target?.webContents.send("app:command", { command, payload });
 }
 
+function isZoomShortcutInput(input: { key?: string; meta?: boolean; control?: boolean; alt?: boolean; type?: string }): boolean {
+  if (input.type && input.type !== "keyDown") return false;
+  const key = input.key?.toLowerCase();
+  const isCommandOrControl = process.platform === "darwin" ? input.meta : input.control;
+  return Boolean(isCommandOrControl && !input.alt && key && ["+", "=", "-", "_", "0"].includes(key));
+}
+
+function lockWebContentsZoom(contents: WebContents): void {
+  const resetZoom = (): void => {
+    if (contents.isDestroyed()) return;
+    if (contents.getZoomLevel() !== fixedWebContentsZoomLevel) contents.setZoomLevel(fixedWebContentsZoomLevel);
+    if (contents.getZoomFactor() !== fixedWebContentsZoomFactor) contents.setZoomFactor(fixedWebContentsZoomFactor);
+  };
+
+  contents.on("zoom-changed", (event) => {
+    event.preventDefault();
+    resetZoom();
+  });
+  contents.on("before-input-event", (event, input) => {
+    if (!isZoomShortcutInput(input)) return;
+    event.preventDefault();
+    resetZoom();
+  });
+  contents.on("did-finish-load", resetZoom);
+  resetZoom();
+}
+
 function menuItem(label: string, command: string, payload?: AppCommandPayload, accelerator?: string): MenuItemConstructorOptions {
   return { label, accelerator, click: () => sendCommand(command, payload) };
 }
@@ -496,10 +525,6 @@ function setNativeMenu(): void {
         { type: "separator" },
         { role: "reload" },
         { role: "toggleDevTools" },
-        { type: "separator" },
-        { role: "resetZoom" },
-        { role: "zoomIn" },
-        { role: "zoomOut" },
         { type: "separator" },
         { role: "togglefullscreen" }
       ]
@@ -781,9 +806,11 @@ function createMainWindow(): void {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: false,
+      zoomFactor: fixedWebContentsZoomFactor
     }
   });
+  lockWebContentsZoom(mainWindow.webContents);
 
   if (app.isPackaged) {
     void mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
