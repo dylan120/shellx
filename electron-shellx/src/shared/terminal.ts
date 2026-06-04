@@ -49,6 +49,7 @@ export interface SessionWorkspace {
 
 export interface UserScript {
   id: string;
+  folderID?: string;
   name: string;
   content: string;
   language: ScriptLanguage;
@@ -56,7 +57,16 @@ export interface UserScript {
   updatedAt: string;
 }
 
+export interface ScriptFolder {
+  id: string;
+  parentID?: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ScriptLibrary {
+  folders: ScriptFolder[];
   scripts: UserScript[];
 }
 

@@ -14,11 +14,12 @@ RELEASE_NOTES=""
 usage() {
   cat <<'EOF'
 用法：
-  ./scripts/manual-release-electron-version.sh <version> [选项]
+  ./scripts/manual-release-electron-version.sh [version] [选项]
 
 说明：
   发布 Electron/TypeScript 版 ShellX，生成 ShellX 自动更新器可安装的 ShellX-Release.dmg。
   Release tag 使用 v<version>，应用会通过 GitHub latest Release 检查并自动更新到新版 Electron App。
+  未传入 version 时，会读取 electron-shellx/package.json 当前版本并自动递增 patch 号。
 
 选项：
   --yes, -y              跳过最终确认
@@ -28,6 +29,7 @@ usage() {
   -h, --help             显示帮助
 
 示例：
+  ./scripts/manual-release-electron-version.sh
   ./scripts/manual-release-electron-version.sh 0.9.0
   ./scripts/manual-release-electron-version.sh 0.9.0 --yes
 EOF
@@ -45,6 +47,16 @@ run() {
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || die "缺少命令：$1"
+}
+
+current_electron_version() {
+  node -e 'const pkg = require(process.argv[1]); console.log(pkg.version || "");' "$ELECTRON_DIR/package.json"
+}
+
+next_patch_version() {
+  local current="$1"
+  [[ "$current" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] || die "当前 package.json 版本号必须形如 0.9.0，当前为：$current"
+  printf '%s.%s.%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "$((BASH_REMATCH[3] + 1))"
 }
 
 parse_args() {
@@ -158,18 +170,21 @@ run_tests_if_needed() {
 
 parse_args "$@"
 
-if [[ -z "$VERSION" ]]; then
-  read -r -p "请输入发布版本号（例如 0.9.0）：" VERSION
-fi
-
-[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "版本号必须形如 0.9.0，当前为：$VERSION"
-
 cd "$ROOT_DIR"
 require_command git
 require_command gh
 require_command npm
+require_command node
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "当前目录不是 Git 仓库。"
 [[ -d "$ELECTRON_DIR" ]] || die "未找到 Electron 工程目录：$ELECTRON_DIR"
+
+if [[ -z "$VERSION" ]]; then
+  current_version="$(current_electron_version)"
+  VERSION="$(next_patch_version "$current_version")"
+  echo "未指定发布版本号，自动从 ${current_version} 递增为 ${VERSION}。"
+fi
+
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "版本号必须形如 0.9.0，当前为：$VERSION"
 
 current_branch="$(git branch --show-current)"
 [[ "$current_branch" == "$MAIN_BRANCH" ]] || die "请先切换到 ${MAIN_BRANCH} 再发布，当前分支：${current_branch}"

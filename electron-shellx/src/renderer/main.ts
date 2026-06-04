@@ -7,6 +7,7 @@ import type {
   BatchExecutionResult,
   CreateTerminalRequest,
   RemoteNetworkForwarding,
+  ScriptFolder,
   ScriptLanguage,
   ScriptLibrary,
   SessionFolder,
@@ -51,6 +52,7 @@ let snapshot: AppSnapshot;
 let selectedFolderID: string | null = null;
 let selectedSessionID: string | null = null;
 let selectedScriptID: string | null = null;
+let selectedScriptFolderID: string | null = null;
 let viewMode: ViewMode = "terminal";
 let searchText = "";
 let rootExpanded = true;
@@ -58,6 +60,7 @@ let statusMessage = "Ready";
 let statusSpinning = false;
 let statusClearTimer: number | undefined;
 const expandedFolderIDs = new Set<string>();
+const expandedScriptFolderIDs = new Set<string>();
 const sidebarCollapsedStorageKey = "shellx.sidebarCollapsed";
 const sidebarWidthStorageKey = "shellx.sidebarWidth";
 const sidebarMinWidth = 240;
@@ -132,9 +135,13 @@ function newSession(folderID?: string): SSHSessionProfile {
   };
 }
 
-function newScript(): UserScript {
+function newScript(folderID?: string): UserScript {
   const timestamp = now();
-  return { id: uid(), name: "新建脚本", content: "#!/bin/sh\n", language: "shell", createdAt: timestamp, updatedAt: timestamp };
+  return { id: uid(), folderID, name: "新建脚本", content: "#!/bin/sh\n", language: "shell", createdAt: timestamp, updatedAt: timestamp };
+}
+
+function normalizeScriptLibrary(library: Partial<ScriptLibrary> | null | undefined): ScriptLibrary {
+  return { folders: library?.folders ?? [], scripts: library?.scripts ?? [] };
 }
 
 function sessionTitle(session: SSHSessionProfile): string {
@@ -147,6 +154,7 @@ async function persistWorkspace(): Promise<void> {
 }
 
 async function persistScripts(): Promise<void> {
+  snapshot.scriptLibrary = normalizeScriptLibrary(snapshot.scriptLibrary);
   await window.shellx.app.saveScripts(snapshot.scriptLibrary);
   render();
 }
@@ -329,6 +337,37 @@ function selectedScript(): UserScript | undefined {
   return snapshot.scriptLibrary.scripts.find((script) => script.id === selectedScriptID);
 }
 
+function rootScripts(): UserScript[] {
+  return snapshot.scriptLibrary.scripts.filter((script) => !script.folderID);
+}
+
+function childScriptFolders(parentID?: string): ScriptFolder[] {
+  return snapshot.scriptLibrary.folders.filter((folder) => (folder.parentID ?? "") === (parentID ?? ""));
+}
+
+function childScripts(folderID: string): UserScript[] {
+  return snapshot.scriptLibrary.scripts.filter((script) => script.folderID === folderID);
+}
+
+function scriptFolderName(folderID?: string): string {
+  return snapshot.scriptLibrary.folders.find((folder) => folder.id === folderID)?.name ?? "未分组";
+}
+
+function scriptFolderOptions(): [string, string][] {
+  const options: [string, string][] = [["", "未分组"]];
+  const append = (folder: ScriptFolder, level: number): void => {
+    options.push([folder.id, `${"  ".repeat(level)}${folder.name}`]);
+    for (const child of childScriptFolders(folder.id)) append(child, level + 1);
+  };
+  for (const folder of childScriptFolders()) append(folder, 0);
+  return options;
+}
+
+function scriptLabel(script: UserScript): string {
+  const folder = scriptFolderName(script.folderID);
+  return script.folderID ? `${folder} / ${script.name || "未命名脚本"}` : script.name || "未命名脚本";
+}
+
 function sessionForTab(tab?: TerminalTab): SSHSessionProfile | undefined {
   const request = tab?.request;
   if (!request || request.kind !== "ssh" || !request.sessionID) return undefined;
@@ -373,7 +412,7 @@ function isRootPayload(payload?: Record<string, unknown>): boolean {
   return payload?.root === true;
 }
 
-function menu(type: "root" | "folder" | "session" | "tab" | "terminal" | "script", payload?: Record<string, unknown>): void {
+function menu(type: "root" | "folder" | "session" | "tab" | "terminal" | "script" | "scriptRoot" | "scriptFolder", payload?: Record<string, unknown>): void {
   void window.shellx.menu.popup({ type, payload });
 }
 
@@ -1330,18 +1369,35 @@ function presentSettingsDialog(): void { presentDialog("全局配置", "settings
 function renderScripts(content: HTMLElement): void {
   content.innerHTML = `<section class="script-view"><aside class="script-list" id="script-list"></aside><section class="script-editor" id="script-editor"></section></section>`;
   const list = content.querySelector<HTMLDivElement>("#script-list")!;
-  list.append(button("+ 新建脚本", "primary full", async () => { await createScript(false); renderScripts(content); }));
-  for (const script of snapshot.scriptLibrary.scripts) {
-    const row = treeRow(script.name || "未命名脚本", selectedScriptID === script.id, "session", () => { selectedScriptID = script.id; renderScripts(content); });
-    row.addEventListener("contextmenu", (event) => { event.preventDefault(); selectedScriptID = script.id; row.classList.add("active"); menu("script", { id: script.id }); });
-    list.append(row);
+  if (!selectedScriptID && !selectedScriptFolderID && snapshot.scriptLibrary.scripts[0]) {
+    selectedScriptID = snapshot.scriptLibrary.scripts[0].id;
+    selectedScriptFolderID = snapshot.scriptLibrary.scripts[0].folderID ?? null;
   }
+  const toolbar = h("div", "script-toolbar");
+  toolbar.append(button("+ 脚本", "primary", async () => { await createScript(false); renderScripts(content); }), button("+ 文件夹", "secondary", async () => { await createScriptFolder(selectedScriptFolderID ?? undefined, false); renderScripts(content); }));
+  list.append(toolbar);
+  const root = treeRow("全部脚本", !selectedScriptFolderID && !selectedScriptID, "root", () => { selectedScriptFolderID = null; selectedScriptID = null; renderScripts(content); }, 0, true, snapshot.scriptLibrary.scripts.length);
+  root.addEventListener("contextmenu", (event) => { event.preventDefault(); selectedScriptFolderID = null; selectedScriptID = null; menu("scriptRoot", { root: true }); });
+  enableScriptTreeDrop(root, undefined);
+  list.append(root);
+  for (const folder of childScriptFolders()) renderScriptFolder(list, folder, 1, content);
+  for (const script of rootScripts()) list.append(scriptRow(script, 1, content));
   const editor = content.querySelector<HTMLDivElement>("#script-editor")!;
-  const script = selectedScript() ?? snapshot.scriptLibrary.scripts[0];
-  if (script && !selectedScriptID) selectedScriptID = script.id;
+  const selectedFolder = selectedScriptFolderID ? snapshot.scriptLibrary.folders.find((folder) => folder.id === selectedScriptFolderID) : undefined;
+  const script = selectedScript();
+  if (selectedFolder && !selectedScriptID) {
+    editor.append(h("div", "panel-title", "脚本文件夹"));
+    editor.append(field("名称", selectedFolder.name, (value) => { selectedFolder.name = value; selectedFolder.updatedAt = now(); }));
+    editor.append(selectField("上级文件夹", selectedFolder.parentID ?? "", scriptFolderOptions().filter(([id]) => id !== selectedFolder.id && !isDescendantScriptFolder(selectedFolder.id, id || undefined)), (value) => { selectedFolder.parentID = value || undefined; selectedFolder.updatedAt = now(); }));
+    const actions = h("div", "actions");
+    actions.append(button("保存", "primary", async () => { await window.shellx.app.saveScripts(snapshot.scriptLibrary); renderScripts(content); }), button("新建脚本", "secondary", async () => { await createScript(false, selectedFolder.id); renderScripts(content); }), button("删除", "danger", async () => { await deleteScriptFolder(selectedFolder.id); renderScripts(content); }));
+    editor.append(actions);
+    return;
+  }
   if (!script) { editor.append(h("div", "empty-panel", "脚本库为空。")); return; }
   editor.append(h("div", "panel-title", "脚本管理"));
   editor.append(field("名称", script.name, (value) => { script.name = value; script.updatedAt = now(); }));
+  editor.append(selectField("所属文件夹", script.folderID ?? "", scriptFolderOptions(), (value) => { script.folderID = value || undefined; script.updatedAt = now(); }));
   editor.append(selectField("语言", script.language, [["shell", "Shell"], ["python", "Python"]], (value) => { script.language = value; script.updatedAt = now(); renderScripts(content); }));
   editor.append(scriptContentEditor(script, () => {}));
   const actions = h("div", "actions");
@@ -1349,12 +1405,141 @@ function renderScripts(content: HTMLElement): void {
   editor.append(actions);
 }
 
-async function createScript(shouldRender = true): Promise<void> {
-  const script = newScript();
+async function createScript(shouldRender = true, folderID = selectedScriptFolderID ?? undefined): Promise<void> {
+  const script = newScript(folderID);
   snapshot.scriptLibrary.scripts.push(script);
   selectedScriptID = script.id;
+  selectedScriptFolderID = folderID ?? null;
+  if (script.folderID) expandedScriptFolderIDs.add(script.folderID);
   await window.shellx.app.saveScripts(snapshot.scriptLibrary);
   if (shouldRender) render();
+}
+
+async function createScriptFolder(parentID?: string, shouldRender = true): Promise<void> {
+  const name = await promptText("新建脚本文件夹", "文件夹名称", "新建文件夹");
+  if (!name) return;
+  const timestamp = now();
+  const folder = { id: uid(), parentID, name, createdAt: timestamp, updatedAt: timestamp };
+  snapshot.scriptLibrary.folders.push(folder);
+  selectedScriptFolderID = folder.id;
+  selectedScriptID = null;
+  expandedScriptFolderIDs.add(folder.id);
+  if (parentID) expandedScriptFolderIDs.add(parentID);
+  await persistScripts();
+  if (shouldRender) render();
+}
+
+async function renameScriptFolder(folderID?: string): Promise<void> {
+  const folder = snapshot.scriptLibrary.folders.find((item) => item.id === (folderID ?? selectedScriptFolderID));
+  if (!folder) return;
+  const name = await promptText("重命名脚本文件夹", "文件夹名称", folder.name);
+  if (!name) return;
+  folder.name = name;
+  folder.updatedAt = now();
+  await persistScripts();
+}
+
+async function deleteScriptFolder(folderID?: string): Promise<void> {
+  const id = folderID ?? selectedScriptFolderID;
+  const folder = snapshot.scriptLibrary.folders.find((item) => item.id === id);
+  if (!folder) return;
+  if (!confirm(`删除脚本文件夹「${folder.name}」？其中的脚本会移动到未分组。`)) return;
+  const childIDs = new Set<string>([folder.id]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const child of snapshot.scriptLibrary.folders) {
+      if (child.parentID && childIDs.has(child.parentID) && !childIDs.has(child.id)) { childIDs.add(child.id); changed = true; }
+    }
+  }
+  snapshot.scriptLibrary.folders = snapshot.scriptLibrary.folders.filter((item) => !childIDs.has(item.id));
+  for (const script of snapshot.scriptLibrary.scripts) if (script.folderID && childIDs.has(script.folderID)) script.folderID = undefined;
+  selectedScriptFolderID = null;
+  selectedScriptID = null;
+  await persistScripts();
+}
+
+function renderScriptFolder(parent: HTMLElement, folder: ScriptFolder, level: number, content: HTMLElement): void {
+  const expanded = expandedScriptFolderIDs.has(folder.id);
+  const row = treeRow(folder.name, selectedScriptFolderID === folder.id && !selectedScriptID, "folder", () => {
+    selectedScriptFolderID = folder.id;
+    selectedScriptID = null;
+    if (expanded) expandedScriptFolderIDs.delete(folder.id);
+    else expandedScriptFolderIDs.add(folder.id);
+    renderScripts(content);
+  }, level, expanded, childScripts(folder.id).length);
+  row.addEventListener("contextmenu", (event) => { event.preventDefault(); selectedScriptFolderID = folder.id; selectedScriptID = null; row.classList.add("active"); menu("scriptFolder", { id: folder.id }); });
+  row.draggable = true;
+  row.addEventListener("dragstart", (event) => {
+    event.dataTransfer?.setData("application/x-shellx-script-folder", folder.id);
+    event.dataTransfer?.setData("text/plain", folder.name);
+  });
+  enableScriptTreeDrop(row, folder.id);
+  parent.append(row);
+  if (expanded) {
+    for (const child of childScriptFolders(folder.id)) renderScriptFolder(parent, child, level + 1, content);
+    for (const script of childScripts(folder.id)) parent.append(scriptRow(script, level + 1, content));
+  }
+}
+
+function scriptRow(script: UserScript, level: number, content: HTMLElement): HTMLDivElement {
+  const row = treeRow(script.name || "未命名脚本", selectedScriptID === script.id, "session", () => { selectedScriptID = script.id; selectedScriptFolderID = script.folderID ?? null; renderScripts(content); }, level);
+  row.addEventListener("contextmenu", (event) => { event.preventDefault(); selectedScriptID = script.id; selectedScriptFolderID = script.folderID ?? null; row.classList.add("active"); menu("script", { id: script.id }); });
+  row.draggable = true;
+  row.addEventListener("dragstart", (event) => {
+    event.dataTransfer?.setData("application/x-shellx-script", script.id);
+    event.dataTransfer?.setData("text/plain", script.name || "未命名脚本");
+  });
+  return row;
+}
+
+function enableScriptTreeDrop(row: HTMLElement, targetFolderID?: string): void {
+  row.addEventListener("dragover", (event) => {
+    if (event.dataTransfer?.types.includes("application/x-shellx-script") || event.dataTransfer?.types.includes("application/x-shellx-script-folder")) {
+      event.preventDefault();
+      row.classList.add("drop-target");
+    }
+  });
+  row.addEventListener("dragleave", () => row.classList.remove("drop-target"));
+  row.addEventListener("drop", (event) => {
+    event.preventDefault();
+    row.classList.remove("drop-target");
+    const scriptID = event.dataTransfer?.getData("application/x-shellx-script");
+    const folderID = event.dataTransfer?.getData("application/x-shellx-script-folder");
+    if (scriptID) void moveScript(scriptID, targetFolderID);
+    else if (folderID) void moveScriptFolder(folderID, targetFolderID);
+  });
+}
+
+async function moveScript(scriptID: string, targetFolderID?: string): Promise<void> {
+  const script = snapshot.scriptLibrary.scripts.find((item) => item.id === scriptID);
+  if (!script || script.folderID === targetFolderID) return;
+  script.folderID = targetFolderID;
+  script.updatedAt = now();
+  selectedScriptID = script.id;
+  selectedScriptFolderID = targetFolderID ?? null;
+  if (targetFolderID) expandedScriptFolderIDs.add(targetFolderID);
+  await persistScripts();
+}
+
+function isDescendantScriptFolder(folderID: string, possibleParentID?: string): boolean {
+  let cursor = possibleParentID;
+  while (cursor) {
+    if (cursor === folderID) return true;
+    cursor = snapshot.scriptLibrary.folders.find((folder) => folder.id === cursor)?.parentID;
+  }
+  return false;
+}
+
+async function moveScriptFolder(folderID: string, targetParentID?: string): Promise<void> {
+  const folder = snapshot.scriptLibrary.folders.find((item) => item.id === folderID);
+  if (!folder || folder.id === targetParentID || folder.parentID === targetParentID || isDescendantScriptFolder(folder.id, targetParentID)) return;
+  folder.parentID = targetParentID;
+  folder.updatedAt = now();
+  selectedScriptFolderID = folder.id;
+  selectedScriptID = null;
+  if (targetParentID) expandedScriptFolderIDs.add(targetParentID);
+  await persistScripts();
 }
 
 async function copyScript(scriptID?: string): Promise<void> {
@@ -1368,6 +1553,7 @@ async function deleteScript(scriptID?: string): Promise<void> {
   if (!confirm(`删除脚本「${script.name || "未命名脚本"}」？`)) return;
   snapshot.scriptLibrary.scripts = snapshot.scriptLibrary.scripts.filter((item) => item.id !== script.id);
   selectedScriptID = null;
+  selectedScriptFolderID = script.folderID ?? null;
   await persistScripts();
 }
 
@@ -1378,7 +1564,7 @@ function renderBatch(content: HTMLElement): void {
   let args = "";
   let timeoutSeconds = 3600;
   const selected = new Set<string>();
-  form.append(selectField("脚本", scriptID, snapshot.scriptLibrary.scripts.map((script) => [script.id, script.name || "未命名"]), (value) => { scriptID = value; }));
+  form.append(selectField("脚本", scriptID, snapshot.scriptLibrary.scripts.map((script) => [script.id, scriptLabel(script)]), (value) => { scriptID = value; }));
   form.append(field("参数", args, (value) => { args = value; }));
   form.append(field("超时秒数", timeoutSeconds, (value) => { timeoutSeconds = Number(value) || 3600; }, { type: "number" }));
   const targets = h("div", "target-list");
@@ -1611,9 +1797,12 @@ async function handleAppCommand(event: AppCommandEvent): Promise<void> {
       if (tab && value) window.shellx.terminal.write(tab.id, value);
       break;
     }
-    case "script:new": await createScript(false); presentScriptsDialog(); break;
+    case "script:new": await createScript(false, isRootPayload(event.payload) ? undefined : id ?? selectedScriptFolderID ?? undefined); presentScriptsDialog(); break;
     case "script:copy": await copyScript(id); break;
     case "script:delete": await deleteScript(id); break;
+    case "scriptFolder:new": await createScriptFolder(isRootPayload(event.payload) ? undefined : id ?? selectedScriptFolderID ?? undefined, false); presentScriptsDialog(); break;
+    case "scriptFolder:rename": await renameScriptFolder(id); presentScriptsDialog(); break;
+    case "scriptFolder:delete": await deleteScriptFolder(id); presentScriptsDialog(); break;
     case "data:export": {
       const result = await window.shellx.app.exportData();
       if (!result.canceled) setStatus(`已导出 ${result.filePaths[0]}`, false, true);
@@ -1621,7 +1810,7 @@ async function handleAppCommand(event: AppCommandEvent): Promise<void> {
     }
     case "data:import": {
       const imported = await window.shellx.app.importData();
-      if (imported) { snapshot = imported; render(); }
+      if (imported) { snapshot = imported; snapshot.scriptLibrary = normalizeScriptLibrary(snapshot.scriptLibrary); render(); }
       break;
     }
   }
@@ -1637,6 +1826,7 @@ window.addEventListener("blur", hideTabPreview);
 
 void (async () => {
   snapshot = await window.shellx.app.load();
+  snapshot.scriptLibrary = normalizeScriptLibrary(snapshot.scriptLibrary);
   window.shellx.app.onCommand((event) => { void handleAppCommand(event); });
   selectedSessionID = snapshot.workspace.sessions[0]?.id ?? null;
   render();

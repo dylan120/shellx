@@ -202,6 +202,8 @@ input:focus, textarea:not(.xterm-helper-textarea):not(.syntax-input):focus, sele
 .script-view { display: grid; grid-template-columns: 300px minmax(0, 1fr); height: 100vh; }
 .script-list { overflow: auto; padding: 14px; border-right: 1px solid var(--stroke); background: var(--sidebar); }
 .script-list > button { margin-bottom: 10px; }
+.script-toolbar { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+.script-toolbar > button { min-width: 0; }
 .script-editor { margin: 18px; overflow: auto; }
 .script-content-field { margin-bottom: 0; }
 .syntax-editor { position: relative; min-height: 430px; border: 1px solid var(--stroke-strong); border-radius: 6px; background: var(--panel-2); overflow: hidden; }

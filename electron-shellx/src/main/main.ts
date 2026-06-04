@@ -21,6 +21,7 @@ import type {
   CreateTerminalResponse,
   DialogFileResult,
   RemoteNetworkForwarding,
+  ScriptFolder,
   ScriptLibrary,
   SessionWorkspace,
   SSHSessionProfile,
@@ -95,7 +96,7 @@ interface UpdateAsset {
 }
 
 interface ContextMenuRequest {
-  type: "root" | "folder" | "session" | "tab" | "terminal" | "script";
+  type: "root" | "folder" | "session" | "tab" | "terminal" | "script" | "scriptRoot" | "scriptFolder";
   payload?: Record<string, unknown>;
 }
 
@@ -184,8 +185,12 @@ function entityName(name: string, id: string, fallback: string, extension = "jso
   return `${safeFileSegment(name, fallback)}__${id}.${extension}`;
 }
 
-function folderDirectoryName(folder: SessionWorkspace["folders"][number]): string {
+function folderDirectoryName(folder: { id: string; name: string }): string {
   return `${safeFileSegment(folder.name, "folder")}__${folder.id}`;
+}
+
+function normalizeScriptLibrary(library: Partial<ScriptLibrary> | null | undefined): ScriptLibrary {
+  return { folders: library?.folders ?? [], scripts: library?.scripts ?? [] };
 }
 
 async function pathExists(filePath: string): Promise<boolean> {
@@ -265,19 +270,33 @@ async function writeWorkspaceTopology(workspace: SessionWorkspace): Promise<void
 
 async function readScriptTopology(): Promise<ScriptLibrary | null> {
   if (!(await pathExists(scriptsRoot()))) return null;
+  const library: ScriptLibrary = { folders: [], scripts: [] };
+  await readScriptDirectory(scriptsRoot(), undefined, library.folders, library.scripts);
+  return library;
+}
+
+async function readScriptDirectory(directory: string, parentID: string | undefined, folders: ScriptFolder[], scripts: ScriptLibrary["scripts"]): Promise<void> {
   let entries: import("node:fs").Dirent[] = [];
   try {
-    entries = await fs.readdir(scriptsRoot(), { withFileTypes: true });
+    entries = await fs.readdir(directory, { withFileTypes: true });
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
     throw error;
   }
-  const scripts: ScriptLibrary["scripts"] = [];
+
   for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-    scripts.push(await readJSONFile<ScriptLibrary["scripts"][number]>(path.join(scriptsRoot(), entry.name)));
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      const folderPath = path.join(entryPath, "folder.json");
+      if (!(await pathExists(folderPath))) continue;
+      const folder = await readJSONFile<ScriptFolder>(folderPath);
+      folders.push({ ...folder, parentID });
+      await readScriptDirectory(entryPath, folder.id, folders, scripts);
+    } else if (entry.isFile() && entry.name.endsWith(".json") && entry.name !== "folder.json") {
+      const script = await readJSONFile<ScriptLibrary["scripts"][number]>(entryPath);
+      scripts.push({ ...script, folderID: parentID });
+    }
   }
-  return { scripts };
 }
 
 async function readLegacyShellXWorkspace(): Promise<SessionWorkspace | null> {
@@ -310,12 +329,12 @@ async function readLegacyShellXScripts(): Promise<ScriptLibrary | null> {
       if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
       scripts.push(await readJSONFile<ScriptLibrary["scripts"][number]>(path.join(legacyScriptsRoot, entry.name)));
     }
-    return { scripts };
+    return { folders: [], scripts };
   }
 
   const legacyFile = path.join(legacyRoot, "scripts.json");
   if (!(await pathExists(legacyFile))) return null;
-  return readJSONFile<ScriptLibrary>(legacyFile);
+  return normalizeScriptLibrary(await readJSONFile<Partial<ScriptLibrary>>(legacyFile));
 }
 
 function mergeWorkspace(base: SessionWorkspace, incoming: SessionWorkspace): { workspace: SessionWorkspace; importedFolders: number; importedSessions: number } {
@@ -334,9 +353,11 @@ function mergeWorkspace(base: SessionWorkspace, incoming: SessionWorkspace): { w
 }
 
 function mergeScripts(base: ScriptLibrary, incoming: ScriptLibrary): { library: ScriptLibrary; importedScripts: number } {
+  const folderIDs = new Set(base.folders.map((folder) => folder.id));
   const scriptIDs = new Set(base.scripts.map((script) => script.id));
+  const importedFolders = incoming.folders.filter((folder) => !folderIDs.has(folder.id));
   const importedScripts = incoming.scripts.filter((script) => !scriptIDs.has(script.id));
-  return { library: { scripts: [...base.scripts, ...importedScripts] }, importedScripts: importedScripts.length };
+  return { library: { folders: [...base.folders, ...importedFolders], scripts: [...base.scripts, ...importedScripts] }, importedScripts: importedScripts.length };
 }
 
 async function copyLegacyKnownHostsIfNeeded(): Promise<boolean> {
@@ -354,8 +375,27 @@ async function writeScriptTopology(library: ScriptLibrary): Promise<void> {
   const target = scriptsRoot();
   const temp = `${target}.tmp`;
   await replaceDirectory(temp, target);
-  for (const script of library.scripts) {
-    await writeJSONFile(path.join(temp, entityName(script.name, script.id, "script")), script);
+
+  const normalized = normalizeScriptLibrary(library);
+  const folderPaths = new Map<string, string>();
+  const children = new Map<string, ScriptFolder[]>();
+  for (const folder of normalized.folders) {
+    const key = folder.parentID ?? "";
+    children.set(key, [...(children.get(key) ?? []), folder]);
+  }
+
+  async function writeFolder(folder: ScriptFolder, parentPath: string): Promise<void> {
+    const folderPath = path.join(parentPath, folderDirectoryName(folder));
+    await fs.mkdir(folderPath, { recursive: true });
+    folderPaths.set(folder.id, folderPath);
+    await writeJSONFile(path.join(folderPath, "folder.json"), folder);
+    for (const child of (children.get(folder.id) ?? []).sort((a, b) => a.name.localeCompare(b.name))) await writeFolder(child, folderPath);
+  }
+
+  for (const folder of (children.get("") ?? []).sort((a, b) => a.name.localeCompare(b.name))) await writeFolder(folder, temp);
+  for (const script of normalized.scripts) {
+    const parentPath = script.folderID ? folderPaths.get(script.folderID) ?? temp : temp;
+    await writeJSONFile(path.join(parentPath, entityName(script.name, script.id, "script")), script);
   }
   await fs.rm(target, { recursive: true, force: true });
   await fs.rename(temp, target);
@@ -370,7 +410,7 @@ async function migrateLegacyStorageIfNeeded(): Promise<void> {
 
   const scripts = await readScriptTopology();
   if (!scripts) {
-    const legacyScripts = await readJSON<ScriptLibrary>("scripts.json", { scripts: [] });
+    const legacyScripts = normalizeScriptLibrary(await readJSON<Partial<ScriptLibrary>>("scripts.json", { scripts: [] }));
     if (legacyScripts.scripts.length > 0) await writeScriptTopology(legacyScripts);
   }
 }
@@ -379,7 +419,7 @@ async function migrateLegacyShellXDataIfNeeded(): Promise<void> {
   if (await pathExists(legacyMigrationMarkerFile())) return;
 
   const existingWorkspace = await readWorkspaceTopology() ?? { folders: [], sessions: [] };
-  const existingScripts = await readScriptTopology() ?? { scripts: [] };
+  const existingScripts = await readScriptTopology() ?? { folders: [], scripts: [] };
   const legacyWorkspace = await readLegacyShellXWorkspace();
   const legacyScripts = await readLegacyShellXScripts();
 
@@ -515,6 +555,7 @@ function setNativeMenu(): void {
         menuItem("批量执行脚本", "view:batch", undefined, "CommandOrControl+3"),
         { type: "separator" },
         menuItem("新建脚本", "script:new"),
+        menuItem("新建脚本文件夹", "scriptFolder:new"),
         menuItem("复制脚本内容", "script:copy"),
         menuItem("删除脚本", "script:delete")
       ]
@@ -542,6 +583,8 @@ function contextTemplate(request: ContextMenuRequest): MenuItemConstructorOption
   if (request.type === "session") return [menuItem("连接", "session:connect", payload), menuItem("编辑...", "session:edit", payload), menuItem("复制会话", "session:duplicate", payload), { type: "separator" }, menuItem("删除会话", "session:delete", payload)];
   if (request.type === "tab") return [menuItem("切换到此标签", "tab:activate", payload), menuItem("重连", "tab:reconnect", payload), menuItem("固定/取消固定", "tab:togglePinned", payload), menuItem("复制到新标签", "tab:duplicate", payload), { type: "separator" }, menuItem("关闭右侧标签", "tab:closeRight", payload), menuItem("关闭其他标签", "tab:closeOthers", payload), menuItem("关闭当前标签", "tab:close", payload)];
   if (request.type === "terminal") return [menuItem("复制", "terminal:copy", payload), menuItem("粘贴", "terminal:paste", payload), { role: "selectAll" }, { type: "separator" }, menuItem("关闭当前标签", "tab:close", payload)];
+  if (request.type === "scriptRoot") return [menuItem("新建脚本", "script:new", payload), menuItem("新建脚本文件夹", "scriptFolder:new", payload)];
+  if (request.type === "scriptFolder") return [menuItem("在此新建脚本", "script:new", payload), menuItem("新建子文件夹", "scriptFolder:new", payload), { type: "separator" }, menuItem("重命名文件夹", "scriptFolder:rename", payload), menuItem("删除文件夹", "scriptFolder:delete", payload)];
   return [menuItem("新建脚本", "script:new"), menuItem("复制脚本内容", "script:copy", payload), menuItem("删除脚本", "script:delete", payload)];
 }
 
@@ -783,7 +826,7 @@ async function loadSnapshot(): Promise<AppSnapshot> {
   await migrateLegacyStorageIfNeeded();
   await migrateLegacyShellXDataIfNeeded();
   const workspace = await readWorkspaceTopology() ?? { folders: [], sessions: [] };
-  const scriptLibrary = await readScriptTopology() ?? { scripts: [] };
+  const scriptLibrary = await readScriptTopology() ?? { folders: [], scripts: [] };
   const settings = { ...defaultSettings, ...(await readJSON<Partial<AppSettings>>("settings.json", {})) };
   applyTheme(settings.theme);
   return { workspace, scriptLibrary, settings };
@@ -1332,7 +1375,7 @@ function execFileText(command: string, args: string[], input?: string): Promise<
 
 ipcMain.handle("app:load", loadSnapshot);
 ipcMain.handle("app:saveWorkspace", async (_event, workspace: SessionWorkspace) => writeWorkspaceTopology(workspace));
-ipcMain.handle("app:saveScripts", async (_event, library: ScriptLibrary) => writeScriptTopology(library));
+ipcMain.handle("app:saveScripts", async (_event, library: ScriptLibrary) => writeScriptTopology(normalizeScriptLibrary(library)));
 ipcMain.handle("app:saveSettings", async (_event, settings: AppSettings) => {
   applyTheme(settings.theme);
   await writeJSON("settings.json", settings);
@@ -1354,7 +1397,7 @@ ipcMain.handle("app:import", async (): Promise<AppSnapshot | null> => {
   if (result.canceled || result.filePaths.length === 0) return null;
   const snapshot = JSON.parse(await fs.readFile(result.filePaths[0]!, "utf8")) as AppSnapshot;
   await writeWorkspaceTopology(snapshot.workspace ?? { folders: [], sessions: [] });
-  await writeScriptTopology(snapshot.scriptLibrary ?? { scripts: [] });
+  await writeScriptTopology(normalizeScriptLibrary(snapshot.scriptLibrary));
   await writeJSON("settings.json", { ...defaultSettings, ...(snapshot.settings ?? {}) });
   return loadSnapshot();
 });

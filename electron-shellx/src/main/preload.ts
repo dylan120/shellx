@@ -23,7 +23,7 @@ interface AppCommandEvent {
 }
 
 interface ContextMenuRequest {
-  type: "root" | "folder" | "session" | "tab" | "terminal" | "script";
+  type: "root" | "folder" | "session" | "tab" | "terminal" | "script" | "scriptRoot" | "scriptFolder";
   payload?: Record<string, unknown>;
 }
 
