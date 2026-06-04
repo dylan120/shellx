@@ -39,6 +39,8 @@ interface TerminalTab {
   zmodemActive: boolean;
   zmodemHandled: boolean;
   transferMessage: string;
+  lastPtyCols: number;
+  lastPtyRows: number;
 }
 
 type ViewMode = "terminal" | "detail";
@@ -195,7 +197,7 @@ function applySidebarWidth(): void {
 function fitAndSyncTerminal(tab: TerminalTab): void {
   if (!tab.pane.isConnected || !tab.pane.classList.contains("active") || tab.pane.clientWidth <= 0 || tab.pane.clientHeight <= 0) return;
   resizeTerminalToFit(tab.terminal, tab.fitAddon);
-  window.shellx.terminal.resize(tab.id, ptyColsForTerminal(tab.terminal), tab.terminal.rows);
+  syncTerminalPtySize(tab);
 }
 
 function fitActiveTerminal(): void {
@@ -272,6 +274,15 @@ function ptyColsForTerminal(terminal: Terminal): number {
 
 function terminalPtySize(terminal: Terminal): Pick<CreateTerminalRequest, "initialCols" | "initialRows"> {
   return { initialCols: ptyColsForTerminal(terminal), initialRows: terminal.rows };
+}
+
+function syncTerminalPtySize(tab: TerminalTab): void {
+  const cols = ptyColsForTerminal(tab.terminal);
+  const rows = tab.terminal.rows;
+  if (tab.lastPtyCols === cols && tab.lastPtyRows === rows) return;
+  tab.lastPtyCols = cols;
+  tab.lastPtyRows = rows;
+  window.shellx.terminal.resize(tab.id, cols, rows);
 }
 
 function updateStatusbar(): void {
@@ -1155,10 +1166,14 @@ async function openTerminal(request: CreateTerminalRequest, titleOverride?: stri
   terminal.loadAddon(fitAddon);
   terminal.open(surface);
   resizeTerminalToFit(terminal, fitAddon);
-  const { id, title } = await window.shellx.terminal.create({ ...request, ...terminalPtySize(terminal) });
+  const initialPtySize = terminalPtySize(terminal);
+  const { id, title } = await window.shellx.terminal.create({ ...request, ...initialPtySize });
   pane.addEventListener("contextmenu", (event) => { event.preventDefault(); activateTab(id); menu("terminal", { id }); });
   terminal.onData((data) => window.shellx.terminal.write(id, data));
-  terminal.onResize(({ rows }) => window.shellx.terminal.resize(id, ptyColsForTerminal(terminal), rows));
+  terminal.onResize(() => {
+    const tab = tabs.get(id);
+    if (tab) syncTerminalPtySize(tab);
+  });
   terminal.attachCustomKeyEventHandler((event) => {
     if (event.metaKey && event.key.toLowerCase() === "w" && event.type === "keydown") { closeTab(id); return false; }
     if (event.metaKey && !event.altKey && !event.ctrlKey && !event.shiftKey && event.type === "keydown") {
@@ -1218,7 +1233,7 @@ async function openTerminal(request: CreateTerminalRequest, titleOverride?: stri
     if (payload.state === "failed") tab.terminal.write(`\r\n[ShellX] ${payload.message}\r\n`);
     if (activeTabID === id) setStatus(payload.message, payload.state === "started", payload.state !== "started");
   });
-  insertTab(id, { id, title: titleOverride ?? title, subtitle, request, terminal, fitAddon, pane, disposeData, disposeExit, disposeZmodem, connecting: true, exited: false, pinned: false, unread: false, attention: "normal", recentOutput: "", passwordAutofillAttempted: false, passwordPromptPending: false, zmodemActive: false, zmodemHandled: false, transferMessage: "" }, insertAfterTabID);
+  insertTab(id, { id, title: titleOverride ?? title, subtitle, request, terminal, fitAddon, pane, disposeData, disposeExit, disposeZmodem, connecting: true, exited: false, pinned: false, unread: false, attention: "normal", recentOutput: "", passwordAutofillAttempted: false, passwordPromptPending: false, zmodemActive: false, zmodemHandled: false, transferMessage: "", lastPtyCols: initialPtySize.initialCols ?? ptyColsForTerminal(terminal), lastPtyRows: initialPtySize.initialRows ?? terminal.rows }, insertAfterTabID);
   activateTab(id);
 }
 

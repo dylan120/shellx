@@ -35,6 +35,8 @@ interface ManagedTerminal {
   title: string;
   ptyProcess: pty.IPty;
   decoder: StringDecoder;
+  ptyCols: number;
+  ptyRows: number;
   pendingZmodemInput?: Buffer[];
   pendingZmodemInputBytes?: number;
   pendingZmodemScanTail?: Buffer;
@@ -922,10 +924,12 @@ function createPty(request: CreateTerminalRequest): ManagedTerminal {
   const id = randomUUID();
   const localShell = request.kind === "local" ? shellPath(request) : undefined;
   const env = terminalEnvironment(request, localShell);
+  const cols = Math.max(20, Math.min(400, Math.round(request.initialCols ?? 100)));
+  const rows = Math.max(8, Math.min(120, Math.round(request.initialRows ?? 30)));
   const options: pty.IPtyForkOptions = {
     name: "xterm-256color",
-    cols: Math.max(20, Math.min(400, Math.round(request.initialCols ?? 100))),
-    rows: Math.max(8, Math.min(120, Math.round(request.initialRows ?? 30))),
+    cols,
+    rows,
     cwd: request.kind === "local" ? request.cwd || os.homedir() : os.homedir(),
     encoding: null,
     env
@@ -939,7 +943,7 @@ function createPty(request: CreateTerminalRequest): ManagedTerminal {
     ? `${request.username ? `${request.username}@` : ""}${request.host}`
     : path.basename(shellPath(request));
 
-  const terminal: ManagedTerminal = { id, title, ptyProcess, decoder: new StringDecoder("utf8") };
+  const terminal: ManagedTerminal = { id, title, ptyProcess, decoder: new StringDecoder("utf8"), ptyCols: cols, ptyRows: rows };
   terminals.set(id, terminal);
 
   ptyProcess.onData((data: string | Buffer) => {
@@ -1430,7 +1434,16 @@ ipcMain.on("terminal:write", (_event, payload: { id: string; data: string }) => 
   if (payload.data.includes("\x18\x18")) consumePendingZmodemInput(terminal);
   terminal.ptyProcess.write(payload.data);
 });
-ipcMain.on("terminal:resize", (_event, payload: { id: string; cols: number; rows: number }) => terminals.get(payload.id)?.ptyProcess.resize(payload.cols, payload.rows));
+ipcMain.on("terminal:resize", (_event, payload: { id: string; cols: number; rows: number }) => {
+  const terminal = terminals.get(payload.id);
+  if (!terminal) return;
+  const cols = Math.max(20, Math.min(400, Math.round(payload.cols)));
+  const rows = Math.max(8, Math.min(120, Math.round(payload.rows)));
+  if (terminal.ptyCols === cols && terminal.ptyRows === rows) return;
+  terminal.ptyCols = cols;
+  terminal.ptyRows = rows;
+  terminal.ptyProcess.resize(cols, rows);
+});
 ipcMain.on("terminal:dispose", (_event, payload: { id: string }) => {
   const terminal = terminals.get(payload.id);
   if (!terminal) return;
