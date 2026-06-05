@@ -165,7 +165,8 @@ input:focus, textarea:not(.xterm-helper-textarea):not(.syntax-input):focus, sele
 .tab-unread { flex: 0 0 auto; width: 7px; height: 7px; border-radius: 999px; background: #5fb3a4; box-shadow: 0 0 8px rgb(95 179 164 / 42%); }
 .tab-unread.prompt { background: #f2c66d; box-shadow-color: rgb(242 198 109 / 42%); }
 .tab-unread.error { background: #d96b6b; box-shadow-color: rgb(217 107 107 / 42%); }
-.tab-close { width: 16px; text-align: center; }
+.tab-close { width: 16px; text-align: center; cursor: pointer; }
+.tab-close:hover { color: #f4fbfa; }
 .tab-preview { position: fixed; z-index: 50; width: 544px; padding: 12px; border: 1px solid var(--stroke-strong); border-radius: 8px; background: color-mix(in srgb, var(--panel) 84%, transparent); backdrop-filter: blur(18px); box-shadow: 0 22px 56px rgb(0 0 0 / 34%); pointer-events: none; }
 .tab-preview-header { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; font-size: 12px; }
 .tab-preview-header strong { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

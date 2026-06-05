@@ -1012,8 +1012,25 @@ function renderTabs(): void {
     if (tab.pinned) row.append(h("span", "tab-pin", "⌖"));
     if (!tab.exited && tab.unread) row.append(h("span", `tab-unread ${tab.attention}`, ""));
     const close = h("span", "tab-close", "×");
-    close.addEventListener("pointerdown", (event) => event.stopPropagation());
-    close.addEventListener("click", (event) => { event.stopPropagation(); closeTab(tab.id); });
+    close.setAttribute("role", "button");
+    close.setAttribute("tabindex", "0");
+    close.setAttribute("aria-label", `关闭终端 ${tab.title}`);
+    close.addEventListener("pointerdown", (event) => {
+      event.stopPropagation();
+      event.preventDefault();
+      if (event.button !== 0) return;
+      closeTab(tab.id);
+    });
+    close.addEventListener("click", (event) => {
+      event.stopPropagation();
+      event.preventDefault();
+    });
+    close.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.stopPropagation();
+      event.preventDefault();
+      closeTab(tab.id);
+    });
     row.append(close);
     row.addEventListener("pointerdown", (event) => {
       if (event.button !== 0) return;
