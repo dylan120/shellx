@@ -29,6 +29,8 @@ npm run package:dir
 
 ## 最近交接
 
+- 2026-06-05：用户反馈 macOS 全屏时顶部终端标签离屏幕顶部太近，容易触发系统菜单栏显示。当前代码已有窗口全屏状态监听并在 shell 根节点添加 `window-fullscreen` class，本次只在 `electron-shellx/src/renderer/styles.css` 补充全屏布局安全距离：全屏时 `.workspace` 顶部增加 18px padding，终端标签栏/资源提示栏整体下移；详情页顶部 padding 增至 42px，避免侧栏折叠展开按钮或详情内容贴近系统菜单触发区。验证：`npm run typecheck`、`npm run build`、`git diff --check` 通过；尚未在 macOS Electron 真机全屏模式手动验证菜单栏触发距离、资源提示栏出现时的布局和终端 fit 后的行列尺寸。
+
 - 2026-06-05：用户反馈顶部终端标签关闭按钮有时点击没反应。分析延续此前标签点击偶发失效的同类根因：标签按钮是可拖拽元素，且后台输出/状态变化会触发 `renderTabs()` 重建 DOM，若关闭按钮依赖 `click`，鼠标按下到抬起之间节点被替换时浏览器可能丢失 click 事件。已在 `electron-shellx/src/renderer/main.ts` 将关闭按钮改为左键 `pointerdown` 即拦截并执行关闭，阻止事件冒泡到标签激活/拖拽路径，同时保留 `Enter`/空格键关闭和 aria 标签；`electron-shellx/src/renderer/styles.css` 补充关闭按钮 hover 与指针反馈。验证：`npm run typecheck`、`npm run build` 通过。尚未在 macOS Electron 真机中手动验证高频输出时连续关闭标签、确认弹窗交互和拖拽标签排序。
 
 - 2026-06-04：用户要求优化 `scripts/manual-release-electron-version.sh`，支持不指明版本时自动递增版本号。已将发布脚本用法改为 `[version] [选项]`，未传入版本时读取 `electron-shellx/package.json` 当前版本并自动递增 patch 号，例如 `1.3.1 -> 1.3.2`；保留显式传入版本的原行为，仍校验 `x.y.z` 格式，并在确认信息、`npm version`、tag 与 Release 中使用最终版本。脚本帮助文本已同步说明。验证：`bash -n scripts/manual-release-electron-version.sh` 和 `scripts/manual-release-electron-version.sh --help` 通过；未执行真实发布、打包、Git tag、GitHub Release 或自动更新端到端验证。
