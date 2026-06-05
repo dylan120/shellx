@@ -102,6 +102,14 @@ contextBridge.exposeInMainWorld("shellx", {
       const listener = (_event: Electron.IpcRendererEvent, payload: AppCommandEvent) => callback(payload);
       ipcRenderer.on("app:command", listener);
       return () => ipcRenderer.off("app:command", listener);
+    },
+    isFullScreen(): Promise<boolean> {
+      return ipcRenderer.invoke("window:isFullScreen") as Promise<boolean>;
+    },
+    onFullScreenChange(callback: (isFullScreen: boolean) => void): Disposable {
+      const listener = (_event: Electron.IpcRendererEvent, value: boolean) => callback(value);
+      ipcRenderer.on("window:fullScreenChanged", listener);
+      return () => ipcRenderer.off("window:fullScreenChanged", listener);
     }
   },
   menu: {

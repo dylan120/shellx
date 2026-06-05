@@ -73,6 +73,7 @@ const sessionDoubleClickIntervalMs = 1200;
 const sessionSingleClickDelayMs = 320;
 let sidebarCollapsed = localStorage.getItem(sidebarCollapsedStorageKey) === "true";
 let sidebarWidth = clampSidebarWidth(Number(localStorage.getItem(sidebarWidthStorageKey)) || 300);
+let windowFullScreen = false;
 let lastSessionClick: { id: string; at: number } | null = null;
 let pendingSessionClickRenderTimer: number | undefined;
 let suppressNextSessionClickID: string | null = null;
@@ -88,6 +89,12 @@ if (!appRoot) throw new Error("Missing app root");
 
 const now = () => new Date().toISOString();
 const uid = () => crypto.randomUUID();
+
+function setWindowFullScreen(value: boolean): void {
+  windowFullScreen = value;
+  document.documentElement.dataset.windowFullscreen = value ? "true" : "false";
+  scheduleActiveTerminalFitAfterLayout();
+}
 const text = (value: unknown) => String(value ?? "");
 const cleanTags = (value: string) => Array.from(new Set(value.split(/[，,\n]/).map((item) => item.trim()).filter(Boolean))).slice(0, 12);
 const passwordPromptPattern = /(?:^|[\r\n\s])(?:password|passphrase)(?:\s+for\s+[^:]+)?:\s*$/i;
@@ -501,7 +508,7 @@ function checkbox(label: string, value: boolean, onInput: (value: boolean) => vo
 function render(): void {
   document.documentElement.dataset.theme = snapshot.settings.theme;
   appRoot.innerHTML = `
-    <main class="shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}">
+    <main class="shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${windowFullScreen ? "window-fullscreen" : ""}">
       <aside class="sidebar">
         <section class="brand">
           <div class="brand-copy"><h1>ShellX</h1><p>SSH 会话、终端、脚本和传输工作台</p></div>
@@ -1844,6 +1851,8 @@ window.addEventListener("blur", hideTabPreview);
 void (async () => {
   snapshot = await window.shellx.app.load();
   snapshot.scriptLibrary = normalizeScriptLibrary(snapshot.scriptLibrary);
+  setWindowFullScreen(await window.shellx.app.isFullScreen());
+  window.shellx.app.onFullScreenChange(setWindowFullScreen);
   window.shellx.app.onCommand((event) => { void handleAppCommand(event); });
   selectedSessionID = snapshot.workspace.sessions[0]?.id ?? null;
   render();

@@ -857,6 +857,13 @@ function createMainWindow(): void {
   });
   lockWebContentsZoom(mainWindow.webContents);
 
+  const notifyFullScreenState = (): void => {
+    if (!mainWindow || mainWindow.webContents.isDestroyed()) return;
+    mainWindow.webContents.send("window:fullScreenChanged", mainWindow.isFullScreen());
+  };
+  mainWindow.on("enter-full-screen", notifyFullScreenState);
+  mainWindow.on("leave-full-screen", notifyFullScreenState);
+
   if (app.isPackaged) {
     void mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
   } else {
@@ -1374,6 +1381,10 @@ function execFileText(command: string, args: string[], input?: string): Promise<
 }
 
 ipcMain.handle("app:load", loadSnapshot);
+ipcMain.handle("window:isFullScreen", (event) => {
+  const window = BrowserWindow.fromWebContents(event.sender) ?? mainWindow;
+  return Boolean(window?.isFullScreen());
+});
 ipcMain.handle("app:saveWorkspace", async (_event, workspace: SessionWorkspace) => writeWorkspaceTopology(workspace));
 ipcMain.handle("app:saveScripts", async (_event, library: ScriptLibrary) => writeScriptTopology(normalizeScriptLibrary(library)));
 ipcMain.handle("app:saveSettings", async (_event, settings: AppSettings) => {

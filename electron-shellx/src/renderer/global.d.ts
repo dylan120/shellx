@@ -36,6 +36,8 @@ declare global {
         installPendingUpdate(): Promise<AppUpdateResult>;
         onUpdateProgress(callback: (progress: AppUpdateProgress) => void): () => void;
         onCommand(callback: (event: AppCommandEvent) => void): () => void;
+        isFullScreen(): Promise<boolean>;
+        onFullScreenChange(callback: (isFullScreen: boolean) => void): () => void;
       };
       menu: {
         popup(request: ContextMenuRequest): Promise<void>;
