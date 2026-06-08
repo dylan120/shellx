@@ -71,6 +71,28 @@ const sidebarCollapsedWidth = 0;
 const terminalMinimumRightReservePixels = 28;
 const terminalScrollbarTextGapPixels = 12;
 const terminalPtyRightGuardColumns = 1;
+const terminalTheme = {
+  background: "#0c0f11",
+  foreground: "#e7ecef",
+  cursor: "#f2c66d",
+  selectionBackground: "#31524e",
+  black: "#000000",
+  red: "#cc4b4c",
+  green: "#4f9f6f",
+  yellow: "#c49a46",
+  blue: "#4d82c8",
+  magenta: "#b06ac8",
+  cyan: "#4aa6a6",
+  white: "#ffffff",
+  brightBlack: "#5f6a6a",
+  brightRed: "#e06c6d",
+  brightGreen: "#6fbd8a",
+  brightYellow: "#e0b85c",
+  brightBlue: "#6fa3e6",
+  brightMagenta: "#c989e2",
+  brightCyan: "#69c7c7",
+  brightWhite: "#ffffff"
+};
 const sessionDoubleClickIntervalMs = 1200;
 const sessionSingleClickDelayMs = 320;
 let sidebarCollapsed = localStorage.getItem(sidebarCollapsedStorageKey) === "true";
@@ -1231,7 +1253,7 @@ async function openTerminal(request: CreateTerminalRequest, titleOverride?: stri
   pane.classList.add("active");
   document.querySelector<HTMLDivElement>("#terminal-stack")?.append(pane);
   document.querySelector<HTMLDivElement>("#empty")?.remove();
-  const terminal = new Terminal({ cursorBlink: true, scrollback: snapshot.settings.terminalScrollback, fontFamily: "Menlo, Monaco, 'SF Mono', monospace", fontSize: 13, lineHeight: 1, macOptionIsMeta: true, reflowCursorLine: true, theme: { background: "#0c0f11", foreground: "#e7ecef", cursor: "#f2c66d", selectionBackground: "#31524e" } });
+  const terminal = new Terminal({ cursorBlink: true, scrollback: snapshot.settings.terminalScrollback, fontFamily: "Menlo, Monaco, 'SF Mono', monospace", fontSize: 13, lineHeight: 1, letterSpacing: 0, customGlyphs: true, macOptionIsMeta: true, reflowCursorLine: true, theme: terminalTheme });
   const fitAddon = new FitAddon();
   terminal.loadAddon(fitAddon);
   terminal.open(surface);

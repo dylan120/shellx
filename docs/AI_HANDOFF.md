@@ -29,6 +29,8 @@ npm run package:dir
 
 ## 最近交接
 
+- 2026-06-08：用户提供 ShellX 终端二维码渲染截图 `/Users/weijianliu/Documents/截屏2026-06-08 上午10.16.11.png`，并提供实际二维码 SVG `/Users/weijianliu/Downloads/p_08bc451a.svg`。对比后判断主要不是 ANSI/CSI 不支持，而是终端二维码依赖 ANSI 黑白色块与 Unicode block glyph 的连续绘制；默认 ANSI white/black 不是纯白/纯黑时，二维码浅色区域会偏灰，块图对比和边缘观感弱于 SVG。已在 `electron-shellx/src/renderer/main.ts` 抽出 `terminalTheme`，显式定义 ANSI black/white/brightWhite 为 `#000000`/`#ffffff`，并在 xterm 初始化时显式设置 `letterSpacing: 0`、`customGlyphs: true`，保留 `lineHeight: 1`，以减少二维码、进度条和 TUI 块图的缝隙与非纯色偏差。验证：`npm run typecheck`、`npm run build` 通过；尚未在 macOS Electron 真机中重新输出该二维码并扫码/肉眼确认，也未验证真实 SSH、DMG、签名和自动更新。
+
 - 2026-06-08：用户反馈终端输出二维码有割裂感，并询问终端字体、缩放或上层 UI 是否支持 ANSI。确认 ShellX 终端内容由 xterm.js 渲染，主进程通过 node-pty 提供 `TERM=xterm-256color` / `COLORTERM=truecolor`，普通 ANSI/CSI/SGR 控制序列会交给 xterm 解释；上层标签栏/状态栏等 UI 不解释 ANSI。二维码割裂更可能来自块字符/ANSI 背景色二维码被 `lineHeight: 1.18` 的额外行距切开，而非 ANSI 不支持。已将 `electron-shellx/src/renderer/main.ts` 中 xterm `lineHeight` 调整为 `1`，让块状字符行贴合，减少二维码、进度条和 TUI 块绘制的缝隙。待验证：需要在 macOS Electron 真机中输出二维码和常见 TUI 手动确认显示效果；尚未验证真实 SSH、DMG、签名和自动更新。
 
 - 2026-06-06：用户反馈在 ShellX 本机终端运行 Codex CLI 时，遇到 503/circuit breaker 等错误后，上方回答内容会在下方持续重复输出。结合此前 resize 去重修复继续收窄原因：Codex 这类 TUI 在收到 PTY resize/SIGWINCH 后会整屏重绘，如果 ShellX 在终端面板尺寸没有变化时仍因激活、重新渲染或布局稳定回调再次执行 fit，就可能让 TUI 把旧屏幕内容作为新输出追加到 scrollback，看起来像“重新输出了一次”。已在 `electron-shellx/src/renderer/main.ts` 为每个终端标签记录上次实际 fit 的 pane 宽高，`fitAndSyncTerminal()` 只有在活动终端面板 CSS 尺寸真实变化时才重新 fit 并同步 PTY resize，避免焦点恢复、标签激活、render 后二次布局回调造成无意义 resize；真实窗口大小、侧栏宽度变化仍会触发 resize。验证：`npm run typecheck`、`npm run build`、`git diff --check` 通过；尚未在 macOS Electron 真机中长时间运行 Codex CLI 复现 503 后的重复输出，也未验证真实 SSH/TUI、DMG、签名和自动更新。
