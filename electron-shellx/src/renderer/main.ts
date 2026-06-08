@@ -71,6 +71,7 @@ const sidebarCollapsedWidth = 0;
 const terminalMinimumRightReservePixels = 28;
 const terminalScrollbarTextGapPixels = 12;
 const terminalPtyRightGuardColumns = 1;
+const terminalLineHeight = 0.96;
 const terminalTheme = {
   background: "#0c0f11",
   foreground: "#e7ecef",
@@ -1253,7 +1254,7 @@ async function openTerminal(request: CreateTerminalRequest, titleOverride?: stri
   pane.classList.add("active");
   document.querySelector<HTMLDivElement>("#terminal-stack")?.append(pane);
   document.querySelector<HTMLDivElement>("#empty")?.remove();
-  const terminal = new Terminal({ cursorBlink: true, scrollback: snapshot.settings.terminalScrollback, fontFamily: "Menlo, Monaco, 'SF Mono', monospace", fontSize: 13, lineHeight: 1, letterSpacing: 0, customGlyphs: true, macOptionIsMeta: true, reflowCursorLine: true, theme: terminalTheme });
+  const terminal = new Terminal({ cursorBlink: true, scrollback: snapshot.settings.terminalScrollback, fontFamily: "Menlo, Monaco, 'SF Mono', monospace", fontSize: 13, lineHeight: terminalLineHeight, letterSpacing: 0, customGlyphs: true, macOptionIsMeta: true, reflowCursorLine: true, theme: terminalTheme });
   const fitAddon = new FitAddon();
   terminal.loadAddon(fitAddon);
   terminal.open(surface);
