@@ -42,6 +42,8 @@ interface TerminalTab {
   transferMessage: string;
   lastPtyCols: number;
   lastPtyRows: number;
+  lastFitPaneWidth: number;
+  lastFitPaneHeight: number;
 }
 
 type ViewMode = "terminal" | "detail";
@@ -211,6 +213,11 @@ function applySidebarWidth(): void {
 
 function fitAndSyncTerminal(tab: TerminalTab): void {
   if (!tab.pane.isConnected || !tab.pane.classList.contains("active") || tab.pane.clientWidth <= 0 || tab.pane.clientHeight <= 0) return;
+  const paneWidth = Math.round(tab.pane.clientWidth);
+  const paneHeight = Math.round(tab.pane.clientHeight);
+  if (tab.lastFitPaneWidth === paneWidth && tab.lastFitPaneHeight === paneHeight) return;
+  tab.lastFitPaneWidth = paneWidth;
+  tab.lastFitPaneHeight = paneHeight;
   resizeTerminalToFit(tab.terminal, tab.fitAddon);
   syncTerminalPtySize(tab);
 }
@@ -1224,7 +1231,7 @@ async function openTerminal(request: CreateTerminalRequest, titleOverride?: stri
   pane.classList.add("active");
   document.querySelector<HTMLDivElement>("#terminal-stack")?.append(pane);
   document.querySelector<HTMLDivElement>("#empty")?.remove();
-  const terminal = new Terminal({ cursorBlink: true, scrollback: snapshot.settings.terminalScrollback, fontFamily: "Menlo, Monaco, 'SF Mono', monospace", fontSize: 13, lineHeight: 1.18, macOptionIsMeta: true, reflowCursorLine: true, theme: { background: "#0c0f11", foreground: "#e7ecef", cursor: "#f2c66d", selectionBackground: "#31524e" } });
+  const terminal = new Terminal({ cursorBlink: true, scrollback: snapshot.settings.terminalScrollback, fontFamily: "Menlo, Monaco, 'SF Mono', monospace", fontSize: 13, lineHeight: 1, macOptionIsMeta: true, reflowCursorLine: true, theme: { background: "#0c0f11", foreground: "#e7ecef", cursor: "#f2c66d", selectionBackground: "#31524e" } });
   const fitAddon = new FitAddon();
   terminal.loadAddon(fitAddon);
   terminal.open(surface);
@@ -1296,7 +1303,7 @@ async function openTerminal(request: CreateTerminalRequest, titleOverride?: stri
     if (payload.state === "failed") tab.terminal.write(`\r\n[ShellX] ${payload.message}\r\n`);
     if (activeTabID === id) setStatus(payload.message, payload.state === "started", payload.state !== "started");
   });
-  insertTab(id, { id, title: titleOverride ?? title, subtitle, request, terminal, fitAddon, pane, disposeData, disposeExit, disposeZmodem, connecting: true, exited: false, pinned: false, unread: false, attention: "normal", recentOutput: "", passwordAutofillAttempted: false, passwordPromptPending: false, zmodemActive: false, zmodemHandled: false, transferMessage: "", lastPtyCols: initialPtySize.initialCols ?? ptyColsForTerminal(terminal), lastPtyRows: initialPtySize.initialRows ?? terminal.rows }, insertAfterTabID);
+  insertTab(id, { id, title: titleOverride ?? title, subtitle, request, terminal, fitAddon, pane, disposeData, disposeExit, disposeZmodem, connecting: true, exited: false, pinned: false, unread: false, attention: "normal", recentOutput: "", passwordAutofillAttempted: false, passwordPromptPending: false, zmodemActive: false, zmodemHandled: false, transferMessage: "", lastPtyCols: initialPtySize.initialCols ?? ptyColsForTerminal(terminal), lastPtyRows: initialPtySize.initialRows ?? terminal.rows, lastFitPaneWidth: Math.round(pane.clientWidth), lastFitPaneHeight: Math.round(pane.clientHeight) }, insertAfterTabID);
   activateTab(id);
 }
 

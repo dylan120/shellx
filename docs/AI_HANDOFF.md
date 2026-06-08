@@ -29,6 +29,10 @@ npm run package:dir
 
 ## 最近交接
 
+- 2026-06-08：用户反馈终端输出二维码有割裂感，并询问终端字体、缩放或上层 UI 是否支持 ANSI。确认 ShellX 终端内容由 xterm.js 渲染，主进程通过 node-pty 提供 `TERM=xterm-256color` / `COLORTERM=truecolor`，普通 ANSI/CSI/SGR 控制序列会交给 xterm 解释；上层标签栏/状态栏等 UI 不解释 ANSI。二维码割裂更可能来自块字符/ANSI 背景色二维码被 `lineHeight: 1.18` 的额外行距切开，而非 ANSI 不支持。已将 `electron-shellx/src/renderer/main.ts` 中 xterm `lineHeight` 调整为 `1`，让块状字符行贴合，减少二维码、进度条和 TUI 块绘制的缝隙。待验证：需要在 macOS Electron 真机中输出二维码和常见 TUI 手动确认显示效果；尚未验证真实 SSH、DMG、签名和自动更新。
+
+- 2026-06-06：用户反馈在 ShellX 本机终端运行 Codex CLI 时，遇到 503/circuit breaker 等错误后，上方回答内容会在下方持续重复输出。结合此前 resize 去重修复继续收窄原因：Codex 这类 TUI 在收到 PTY resize/SIGWINCH 后会整屏重绘，如果 ShellX 在终端面板尺寸没有变化时仍因激活、重新渲染或布局稳定回调再次执行 fit，就可能让 TUI 把旧屏幕内容作为新输出追加到 scrollback，看起来像“重新输出了一次”。已在 `electron-shellx/src/renderer/main.ts` 为每个终端标签记录上次实际 fit 的 pane 宽高，`fitAndSyncTerminal()` 只有在活动终端面板 CSS 尺寸真实变化时才重新 fit 并同步 PTY resize，避免焦点恢复、标签激活、render 后二次布局回调造成无意义 resize；真实窗口大小、侧栏宽度变化仍会触发 resize。验证：`npm run typecheck`、`npm run build`、`git diff --check` 通过；尚未在 macOS Electron 真机中长时间运行 Codex CLI 复现 503 后的重复输出，也未验证真实 SSH/TUI、DMG、签名和自动更新。
+
 - 2026-06-05：用户反馈 macOS 全屏时顶部终端标签离屏幕顶部太近，容易触发系统菜单栏显示。当前代码已有窗口全屏状态监听并在 shell 根节点添加 `window-fullscreen` class，本次只在 `electron-shellx/src/renderer/styles.css` 补充全屏布局安全距离：全屏时 `.workspace` 顶部增加 18px padding，终端标签栏/资源提示栏整体下移；详情页顶部 padding 增至 42px，避免侧栏折叠展开按钮或详情内容贴近系统菜单触发区。验证：`npm run typecheck`、`npm run build`、`git diff --check` 通过；尚未在 macOS Electron 真机全屏模式手动验证菜单栏触发距离、资源提示栏出现时的布局和终端 fit 后的行列尺寸。
 
 - 2026-06-05：用户反馈顶部终端标签关闭按钮有时点击没反应。分析延续此前标签点击偶发失效的同类根因：标签按钮是可拖拽元素，且后台输出/状态变化会触发 `renderTabs()` 重建 DOM，若关闭按钮依赖 `click`，鼠标按下到抬起之间节点被替换时浏览器可能丢失 click 事件。已在 `electron-shellx/src/renderer/main.ts` 将关闭按钮改为左键 `pointerdown` 即拦截并执行关闭，阻止事件冒泡到标签激活/拖拽路径，同时保留 `Enter`/空格键关闭和 aria 标签；`electron-shellx/src/renderer/styles.css` 补充关闭按钮 hover 与指针反馈。验证：`npm run typecheck`、`npm run build` 通过。尚未在 macOS Electron 真机中手动验证高频输出时连续关闭标签、确认弹窗交互和拖拽标签排序。
