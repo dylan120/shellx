@@ -29,6 +29,8 @@ npm run package:dir
 
 ## 最近交接
 
+- 2026-06-13：用户反馈在终端中选择 Codex CLI 输出文本时，选区首字符高亮背景的左侧边界看起来比首字符左侧更宽，没有贴近字符。判断 xterm DOM 渲染器按字符 cell 绘制选区背景，Menlo 等字体字形有左侧留白时会显得选区左边缘外扩。已在 `electron-shellx/src/renderer/styles.css` 为 `.terminal-surface .xterm .xterm-selection > div` 增加 `clip-path: inset(0 0 0 1px)`，仅裁剪选区矩形左侧 1px，不改变 xterm 选区模型、复制内容或 PTY 输入输出。验证：`npm run typecheck`、`npm run build` 通过；尚未在 macOS Electron 真机中手动验证 Codex CLI 输出拖拽选区视觉、自动复制、真实 SSH/TUI、DMG、签名和自动更新。
+
 - 2026-06-13：用户反馈鼠标选中终端文本时，选中高亮偶发让首字符像被遮挡消失，并且粘贴出的选中文本与视觉高亮范围略有出入。已在 `electron-shellx/src/renderer/main.ts` 为 xterm `terminalTheme` 增加明确的 `selectionForeground` 和 `selectionInactiveBackground`，让被选中文本在高亮层上保持可读；同时将“选中文本复制”从每次 `onSelectionChange` 立即写剪贴板改为 90ms 防抖后读取最终 `terminal.getSelection()` 再写入，避免拖拽选区过程中多次异步 clipboard 写入乱序，使剪贴板停留在中间选区。验证：`npm run typecheck`、`npm run build` 通过；尚未在 macOS Electron 真机中手动验证鼠标拖拽选区、自动复制粘贴一致性、真实 SSH/TUI、DMG、签名和自动更新。
 
 - 2026-06-13：用户反馈左侧折叠按钮偶发点击不折叠、顶部标签多时不希望显示水平滚动条但仍需左右滚动、终端右侧滚动条遮挡输出，以及终端已输出内容偶发重叠/丢失。已在 `electron-shellx/src/renderer/main.ts` 将侧栏折叠/展开入口改为 `pointerdown` 优先触发并保留键盘 Enter/空格，避免按钮处于可拖拽标题区域或 DOM 重建时丢失 click；顶部标签栏隐藏水平滚动条，并在 wheel/触控板滚动时继续横向滚动；终端右侧像素安全区从 28px 提高到 36px，继续少报 1 列 PTY 宽度以避开 xterm 自定义滚动条；同时将 xterm `lineHeight` 从 0.96 恢复为 1，并移除 `.xterm-rows > div { overflow: visible }` 覆盖，避免普通文本行因轻微重叠或行溢出覆盖产生样式异常。验证：`npm run typecheck`、`npm run build` 通过；尚未在 macOS Electron 真机中手动验证高频点击折叠、海量标签触控板横向滚动、真实 SSH 长输出、二维码块图显示、DMG、签名和自动更新。
