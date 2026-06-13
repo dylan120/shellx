@@ -77,6 +77,8 @@ const terminalTheme = {
   foreground: "#e7ecef",
   cursor: "#f2c66d",
   selectionBackground: "#31524e",
+  selectionForeground: "#f4fbfa",
+  selectionInactiveBackground: "#263a38",
   black: "#000000",
   red: "#cc4b4c",
   green: "#4f9f6f",
@@ -103,6 +105,8 @@ let lastSessionClick: { id: string; at: number } | null = null;
 let pendingSessionClickRenderTimer: number | undefined;
 let suppressNextSessionClickID: string | null = null;
 let terminalFitFrame: number | undefined;
+let selectionClipboardTimer: number | undefined;
+let selectionClipboardSerial = 0;
 
 interface AppCommandEvent {
   command: string;
@@ -353,6 +357,17 @@ function syncTerminalPtySize(tab: TerminalTab): void {
   tab.lastPtyCols = cols;
   tab.lastPtyRows = rows;
   window.shellx.terminal.resize(tab.id, cols, rows);
+}
+
+function scheduleSelectionClipboardCopy(terminal: Terminal): void {
+  if (selectionClipboardTimer) window.clearTimeout(selectionClipboardTimer);
+  const serial = ++selectionClipboardSerial;
+  selectionClipboardTimer = window.setTimeout(() => {
+    selectionClipboardTimer = undefined;
+    if (serial !== selectionClipboardSerial) return;
+    const selection = terminal.getSelection();
+    if (selection) void navigator.clipboard.writeText(selection);
+  }, 90);
 }
 
 function updateStatusbar(): void {
@@ -1306,8 +1321,7 @@ async function openTerminal(request: CreateTerminalRequest, titleOverride?: stri
   });
   terminal.onSelectionChange(() => {
     if (!snapshot.settings.copySelectionToClipboard) return;
-    const selection = terminal.getSelection();
-    if (selection) void navigator.clipboard.writeText(selection);
+    scheduleSelectionClipboardCopy(terminal);
   });
   const disposeData = window.shellx.terminal.onData(id, (data) => {
     const tab = tabs.get(id);
