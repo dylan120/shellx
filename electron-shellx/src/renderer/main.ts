@@ -68,10 +68,10 @@ const sidebarWidthStorageKey = "shellx.sidebarWidth";
 const sidebarMinWidth = 240;
 const sidebarMaxWidth = 520;
 const sidebarCollapsedWidth = 0;
-const terminalMinimumRightReservePixels = 28;
+const terminalMinimumRightReservePixels = 36;
 const terminalScrollbarTextGapPixels = 12;
 const terminalPtyRightGuardColumns = 1;
-const terminalLineHeight = 0.96;
+const terminalLineHeight = 1;
 const terminalTheme = {
   background: "#0c0f11",
   foreground: "#e7ecef",
@@ -234,6 +234,34 @@ function applySidebarWidth(): void {
   document.querySelector<HTMLElement>(".shell")?.style.setProperty("--sidebar-width", `${currentSidebarWidth()}px`);
 }
 
+function setSidebarCollapsed(collapsed: boolean): void {
+  if (sidebarCollapsed === collapsed) return;
+  sidebarCollapsed = collapsed;
+  localStorage.setItem(sidebarCollapsedStorageKey, String(sidebarCollapsed));
+  render();
+  scheduleActiveTerminalFitAfterLayout();
+}
+
+function bindPressAction(element: HTMLElement | null, action: () => void): void {
+  if (!element) return;
+  element.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    action();
+  });
+  element.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
+  element.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    event.stopPropagation();
+    action();
+  });
+}
+
 function fitAndSyncTerminal(tab: TerminalTab): void {
   if (!tab.pane.isConnected || !tab.pane.classList.contains("active") || tab.pane.clientWidth <= 0 || tab.pane.clientHeight <= 0) return;
   const paneWidth = Math.round(tab.pane.clientWidth);
@@ -265,10 +293,7 @@ function scheduleActiveTerminalFitAfterLayout(): void {
 }
 
 function expandSidebar(): void {
-  sidebarCollapsed = false;
-  localStorage.setItem(sidebarCollapsedStorageKey, String(sidebarCollapsed));
-  render();
-  scheduleActiveTerminalFitAfterLayout();
+  setSidebarCollapsed(false);
 }
 
 function terminalSizeHint(): Pick<CreateTerminalRequest, "initialCols" | "initialRows"> {
@@ -553,12 +578,7 @@ function render(): void {
     </main>
   `;
   applySidebarWidth();
-  document.querySelector<HTMLButtonElement>("#sidebar-toggle")?.addEventListener("click", () => {
-    sidebarCollapsed = !sidebarCollapsed;
-    localStorage.setItem(sidebarCollapsedStorageKey, String(sidebarCollapsed));
-    render();
-    scheduleActiveTerminalFitAfterLayout();
-  });
+  bindPressAction(document.querySelector<HTMLButtonElement>("#sidebar-toggle"), () => setSidebarCollapsed(!sidebarCollapsed));
   bindSidebarResize();
   if (!sidebarCollapsed) renderTree();
   renderContent();
@@ -866,11 +886,11 @@ function renderSessionReadOnly(content: HTMLElement): void {
   const session = selectedSession();
   if (!session) {
     content.innerHTML = `<section class="detail-page">${sidebarCollapsed ? `<button id="detail-sidebar-reopen" class="detail-sidebar-reopen" type="button" title="展开侧边栏" aria-label="展开侧边栏">›</button>` : ""}<div class="empty-state"><div class="empty-icon">⌁</div><h2>选择一个会话</h2><p>从左侧文件夹树中选择 SSH 会话，查看连接信息、认证方式和启动配置。</p></div></section>`;
-    document.querySelector<HTMLButtonElement>("#detail-sidebar-reopen")?.addEventListener("click", expandSidebar);
+    bindPressAction(document.querySelector<HTMLButtonElement>("#detail-sidebar-reopen"), expandSidebar);
     return;
   }
   content.innerHTML = `<section class="detail-page" id="detail-page">${sidebarCollapsed ? `<button id="detail-sidebar-reopen" class="detail-sidebar-reopen" type="button" title="展开侧边栏" aria-label="展开侧边栏">›</button>` : ""}</section>`;
-  document.querySelector<HTMLButtonElement>("#detail-sidebar-reopen")?.addEventListener("click", expandSidebar);
+  bindPressAction(document.querySelector<HTMLButtonElement>("#detail-sidebar-reopen"), expandSidebar);
   const detail = document.querySelector<HTMLDivElement>("#detail-page")!;
   const hero = h("section", "session-hero");
   hero.append(h("div", "hero-icon", authGlyph(session.authMethod)));
@@ -1030,12 +1050,21 @@ function renderTabs(): void {
   if (!tabbar) return;
   hideTabPreview();
   tabbar.replaceChildren();
+  if (!tabbar.dataset.scrollBound) {
+    tabbar.dataset.scrollBound = "true";
+    tabbar.addEventListener("wheel", (event) => {
+      const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+      if (!delta) return;
+      event.preventDefault();
+      tabbar.scrollLeft += delta;
+    }, { passive: false });
+  }
   if (sidebarCollapsed) {
     const reopen = h("button", "tabbar-sidebar-reopen", "›") as HTMLButtonElement;
     reopen.type = "button";
     reopen.title = "展开侧边栏";
     reopen.setAttribute("aria-label", "展开侧边栏");
-    reopen.addEventListener("click", expandSidebar);
+    bindPressAction(reopen, expandSidebar);
     tabbar.append(reopen);
   }
   for (const tab of tabs.values()) {

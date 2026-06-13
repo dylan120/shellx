@@ -29,6 +29,8 @@ npm run package:dir
 
 ## 最近交接
 
+- 2026-06-13：用户反馈左侧折叠按钮偶发点击不折叠、顶部标签多时不希望显示水平滚动条但仍需左右滚动、终端右侧滚动条遮挡输出，以及终端已输出内容偶发重叠/丢失。已在 `electron-shellx/src/renderer/main.ts` 将侧栏折叠/展开入口改为 `pointerdown` 优先触发并保留键盘 Enter/空格，避免按钮处于可拖拽标题区域或 DOM 重建时丢失 click；顶部标签栏隐藏水平滚动条，并在 wheel/触控板滚动时继续横向滚动；终端右侧像素安全区从 28px 提高到 36px，继续少报 1 列 PTY 宽度以避开 xterm 自定义滚动条；同时将 xterm `lineHeight` 从 0.96 恢复为 1，并移除 `.xterm-rows > div { overflow: visible }` 覆盖，避免普通文本行因轻微重叠或行溢出覆盖产生样式异常。验证：`npm run typecheck`、`npm run build` 通过；尚未在 macOS Electron 真机中手动验证高频点击折叠、海量标签触控板横向滚动、真实 SSH 长输出、二维码块图显示、DMG、签名和自动更新。
+
 - 2026-06-08：用户继续反馈终端二维码上下仍有少量黑色空隙。判断剩余问题更像 xterm 行高/设备像素取整导致相邻 block glyph 行之间露出 1px 终端背景，而不是颜色或 ANSI 解析问题。已在 `electron-shellx/src/renderer/main.ts` 新增 `terminalLineHeight = 0.96` 并用于 xterm `lineHeight`，让块状字符行轻微贴合/重叠，减少二维码上下缝隙；保留上一轮纯黑白 ANSI palette、`letterSpacing: 0` 和 `customGlyphs: true`。验证：`npm run typecheck`、`npm run build` 通过；尚未在 macOS Electron 真机中重新输出二维码、扫码确认或回归长时间 SSH/TUI，未验证 DMG、签名和自动更新。
 
 - 2026-06-08：用户提供 ShellX 终端二维码渲染截图 `/Users/weijianliu/Documents/截屏2026-06-08 上午10.16.11.png`，并提供实际二维码 SVG `/Users/weijianliu/Downloads/p_08bc451a.svg`。对比后判断主要不是 ANSI/CSI 不支持，而是终端二维码依赖 ANSI 黑白色块与 Unicode block glyph 的连续绘制；默认 ANSI white/black 不是纯白/纯黑时，二维码浅色区域会偏灰，块图对比和边缘观感弱于 SVG。已在 `electron-shellx/src/renderer/main.ts` 抽出 `terminalTheme`，显式定义 ANSI black/white/brightWhite 为 `#000000`/`#ffffff`，并在 xterm 初始化时显式设置 `letterSpacing: 0`、`customGlyphs: true`，保留 `lineHeight: 1`，以减少二维码、进度条和 TUI 块图的缝隙与非纯色偏差。验证：`npm run typecheck`、`npm run build` 通过；尚未在 macOS Electron 真机中重新输出该二维码并扫码/肉眼确认，也未验证真实 SSH、DMG、签名和自动更新。
