@@ -1299,7 +1299,7 @@ async function openTerminal(request: CreateTerminalRequest, titleOverride?: stri
   pane.classList.add("active");
   document.querySelector<HTMLDivElement>("#terminal-stack")?.append(pane);
   document.querySelector<HTMLDivElement>("#empty")?.remove();
-  const terminal = new Terminal({ cursorBlink: true, scrollback: snapshot.settings.terminalScrollback, fontFamily: "Menlo, Monaco, 'SF Mono', monospace", fontSize: 13, lineHeight: terminalLineHeight, letterSpacing: 0, customGlyphs: true, macOptionIsMeta: true, reflowCursorLine: true, theme: terminalTheme });
+  const terminal = new Terminal({ cursorBlink: true, cursorStyle: "bar", scrollback: snapshot.settings.terminalScrollback, fontFamily: "Menlo, Monaco, 'SF Mono', monospace", fontSize: 13, lineHeight: terminalLineHeight, letterSpacing: 0, customGlyphs: true, macOptionIsMeta: true, reflowCursorLine: true, theme: terminalTheme });
   const fitAddon = new FitAddon();
   terminal.loadAddon(fitAddon);
   terminal.open(surface);
