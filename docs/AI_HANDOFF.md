@@ -29,6 +29,8 @@ npm run package:dir
 
 ## 最近交接
 
+- 2026-07-05：用户反馈终端鼠标选择 `README.md` 时，高亮后只有选区起点首字符 `R` 看不到。分析当前 Electron xterm 6 配置后，问题集中在选区起点单个 cell：终端 theme 只设置了 block cursor 颜色 `cursor`，未设置 `cursorAccent`，当光标层与拖选起点重合时可能用不合适的文字反色盖住首字符；同时历史上为修正选区左边界视觉而添加的 `.xterm-selection > div { clip-path: inset(0 0 0 1px); }` 会硬裁剪所有选区矩形左侧 1px，正好只影响选区起点边界。已在 `electron-shellx/src/renderer/main.ts` 为 `terminalTheme` 增加 `cursorAccent: "#0c0f11"`，确保 block cursor 覆盖字符时文字仍按终端背景反色可读；并移除 `electron-shellx/src/renderer/styles.css` 中对 xterm selection 左侧的 `clip-path` 覆盖，避免破坏 xterm 自身选区绘制。验证：`npm run typecheck`、`npm run build`、`git diff --check` 通过；尚未在 macOS Electron 真机中用鼠标拖选 `README.md` 手动确认首字符可见，也未验证真实 SSH/TUI、DMG、签名和自动更新。
+
 - 2026-06-13：用户反馈在终端中选择 Codex CLI 输出文本时，选区首字符高亮背景的左侧边界看起来比首字符左侧更宽，没有贴近字符。判断 xterm DOM 渲染器按字符 cell 绘制选区背景，Menlo 等字体字形有左侧留白时会显得选区左边缘外扩。已在 `electron-shellx/src/renderer/styles.css` 为 `.terminal-surface .xterm .xterm-selection > div` 增加 `clip-path: inset(0 0 0 1px)`，仅裁剪选区矩形左侧 1px，不改变 xterm 选区模型、复制内容或 PTY 输入输出。验证：`npm run typecheck`、`npm run build` 通过；尚未在 macOS Electron 真机中手动验证 Codex CLI 输出拖拽选区视觉、自动复制、真实 SSH/TUI、DMG、签名和自动更新。
 
 - 2026-06-13：用户反馈鼠标选中终端文本时，选中高亮偶发让首字符像被遮挡消失，并且粘贴出的选中文本与视觉高亮范围略有出入。已在 `electron-shellx/src/renderer/main.ts` 为 xterm `terminalTheme` 增加明确的 `selectionForeground` 和 `selectionInactiveBackground`，让被选中文本在高亮层上保持可读；同时将“选中文本复制”从每次 `onSelectionChange` 立即写剪贴板改为 90ms 防抖后读取最终 `terminal.getSelection()` 再写入，避免拖拽选区过程中多次异步 clipboard 写入乱序，使剪贴板停留在中间选区。验证：`npm run typecheck`、`npm run build` 通过；尚未在 macOS Electron 真机中手动验证鼠标拖拽选区、自动复制粘贴一致性、真实 SSH/TUI、DMG、签名和自动更新。

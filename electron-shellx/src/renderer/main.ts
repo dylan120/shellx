@@ -76,6 +76,7 @@ const terminalTheme = {
   background: "#0c0f11",
   foreground: "#e7ecef",
   cursor: "#f2c66d",
+  cursorAccent: "#0c0f11",
   selectionBackground: "#31524e",
   selectionForeground: "#f4fbfa",
   selectionInactiveBackground: "#263a38",
