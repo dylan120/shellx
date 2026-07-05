@@ -29,6 +29,8 @@ npm run package:dir
 
 ## 最近交接
 
+- 2026-07-05：用户要求左侧栏折叠后，顶部用于展开左侧栏的按钮更贴近左侧边框，同时避免窗口非最大化时和 macOS 左上角红黄绿窗口按钮重叠遮挡。已在 `electron-shellx/src/renderer/styles.css` 调整收起侧栏布局：取消此前给 `.tabbar` / `.resourcebar` 的 96px 左侧大预留，改为 18px，让展开按钮靠近左边；在非全屏且侧栏收起时给 `.workspace` 增加 30px 顶部安全距离，使顶部标签行整体下移，避开 traffic lights 的纵向区域；详情页收起状态同步调整左侧和顶部 padding，并保留全屏模式原有 42px 顶部安全距离。验证：`npm run typecheck`、`npm run build` 通过；尚未在 macOS Electron 真机中手动验证非最大化窗口、全屏窗口、资源提示条出现时的实际按钮位置，也未验证 DMG、签名和自动更新。
+
 - 2026-07-05：用户反馈终端鼠标选择 `README.md` 时，高亮后只有选区起点首字符 `R` 看不到；随后补充选择中文 `"这是向后兼容修复"` 时仍有同类问题。重新分析 xterm 6 DOM renderer 后，根因收敛为 selection 坐标和背景层叠加：xterm 选择坐标会对鼠标横向位置加半个 cell，用“左半选当前 cell、右半选下一个 cell”的边界模型；中文宽字符还有 trailing cell 修正。选区背景层 `.xterm-selection` 默认位于普通文字层之上，只有被 xterm 判定为选中的 cell 才会提升到 `.xterm-decoration-top`。当拖选起点落在字符右半边或宽字符边界时，首字符未被完整提升，字形边缘会被选区背景层盖住，看起来像首字符消失。已在 `electron-shellx/src/renderer/main.ts` 为 `terminalTheme` 增加 `cursorAccent: "#0c0f11"`，保留 block cursor 可读性；移除 `electron-shellx/src/renderer/styles.css` 中对 xterm selection 左侧的 `clip-path` 覆盖；并新增 `.xterm-rows { position: relative; z-index: 2; }` 与 `.xterm-selection { z-index: 1 !important; }`，让文字行始终在选区背景层上方，避免背景层遮挡起点字形，同时不改变 xterm selection 模型、复制内容或 PTY 输入输出。验证：`npm run typecheck`、`npm run build`、`git diff --check` 通过；尚未在 macOS Electron 真机中用鼠标拖选 `README.md` 和中文文本手动确认首字符可见，也未验证真实 SSH/TUI、DMG、签名和自动更新。
 
 - 2026-06-13：用户反馈在终端中选择 Codex CLI 输出文本时，选区首字符高亮背景的左侧边界看起来比首字符左侧更宽，没有贴近字符。判断 xterm DOM 渲染器按字符 cell 绘制选区背景，Menlo 等字体字形有左侧留白时会显得选区左边缘外扩。已在 `electron-shellx/src/renderer/styles.css` 为 `.terminal-surface .xterm .xterm-selection > div` 增加 `clip-path: inset(0 0 0 1px)`，仅裁剪选区矩形左侧 1px，不改变 xterm 选区模型、复制内容或 PTY 输入输出。验证：`npm run typecheck`、`npm run build` 通过；尚未在 macOS Electron 真机中手动验证 Codex CLI 输出拖拽选区视觉、自动复制、真实 SSH/TUI、DMG、签名和自动更新。
