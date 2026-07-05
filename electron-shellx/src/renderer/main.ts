@@ -68,9 +68,9 @@ const sidebarWidthStorageKey = "shellx.sidebarWidth";
 const sidebarMinWidth = 240;
 const sidebarMaxWidth = 520;
 const sidebarCollapsedWidth = 0;
-const terminalMinimumRightReservePixels = 44;
+const terminalMinimumRightReservePixels = 36;
 const terminalScrollbarTextGapPixels = 12;
-const terminalPtyRightGuardColumns = 2;
+const terminalPtyRightGuardColumns = 1;
 const terminalLineHeight = 1;
 const terminalTheme = {
   background: "#0c0f11",
