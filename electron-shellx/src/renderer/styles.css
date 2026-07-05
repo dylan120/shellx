@@ -192,7 +192,7 @@ input:focus, textarea:not(.xterm-helper-textarea):not(.syntax-input):focus, sele
 .terminal-surface .xterm-viewport { overflow: hidden !important; }
 .terminal-surface .xterm-scrollable-element { width: 100%; height: 100%; }
 .terminal-surface .xterm .xterm-rows { position: relative; z-index: 2; }
-.terminal-surface .xterm .xterm-rows > div { width: calc(100% + 16px) !important; }
+.terminal-surface .xterm .xterm-rows > div { width: 100% !important; box-sizing: content-box; padding-right: 16px; }
 .terminal-surface .xterm .xterm-selection { z-index: 1 !important; }
 .empty { display: grid; place-items: center; height: 100%; color: #88949b; }
 .statusbar { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 14px; border-top: 1px solid #20272c; background: linear-gradient(180deg, #10151b, #0d1217); color: #aeb8bf; font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
