@@ -68,9 +68,9 @@ const sidebarWidthStorageKey = "shellx.sidebarWidth";
 const sidebarMinWidth = 240;
 const sidebarMaxWidth = 520;
 const sidebarCollapsedWidth = 0;
-const terminalMinimumRightReservePixels = 36;
+const terminalMinimumRightReservePixels = 44;
 const terminalScrollbarTextGapPixels = 12;
-const terminalPtyRightGuardColumns = 1;
+const terminalPtyRightGuardColumns = 2;
 const terminalLineHeight = 1;
 const terminalTheme = {
   background: "#0c0f11",
@@ -329,10 +329,10 @@ function terminalScrollbarWidth(terminal: Terminal): number {
 function terminalSizeFromFit(terminal: Terminal, fitAddon: FitAddon): Pick<CreateTerminalRequest, "initialCols" | "initialRows"> {
   const measured = fitAddon.proposeDimensions();
   if (!measured) return terminalSizeHint();
-  const parent = terminal.element?.parentElement;
+  const terminalWidth = terminal.element?.clientWidth || terminal.element?.parentElement?.clientWidth;
   const cell = terminalCellSize(terminal);
   const rightReserve = Math.max(terminalMinimumRightReservePixels, terminalScrollbarWidth(terminal) + terminalScrollbarTextGapPixels);
-  const measuredCols = parent && cell ? Math.floor(Math.max(0, parent.clientWidth - rightReserve) / cell.width) : Math.floor(measured.cols);
+  const measuredCols = terminalWidth && cell ? Math.floor(Math.max(0, terminalWidth - rightReserve) / cell.width) : Math.max(0, Math.floor(measured.cols) - Math.ceil(rightReserve / 7.25));
   return {
     initialCols: Math.max(20, Math.min(400, measuredCols)),
     initialRows: Math.max(8, Math.min(120, Math.floor(measured.rows)))
