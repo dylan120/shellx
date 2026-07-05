@@ -29,6 +29,8 @@ npm run package:dir
 
 ## 最近交接
 
+- 2026-07-06：用户反馈上一轮 Codex CLI 右侧遮挡修复后现象反转：Codex CLI 输出不再遮挡，但普通终端长输出又出现最右侧遮挡。重新分析 xterm 6 DOM renderer 后确认根因是把两类补偿混在了一起：`xterm-rows > div` 的宽度扩展用于放宽单行 DOM 节点自身 `overflow:hidden` 的右侧裁切边界；但把 `padding-right` 加到 `.xterm-rows` 容器会改变 xterm 自己管理的 rows 容器盒模型，而 xterm 内部的 screen、row、selection、cursor、textarea 仍按 `canvas.width = cols * cellWidth` 计算，导致普通连续长输出和 Codex/TUI 按 PTY 宽度绘制的输出落到不同边界，出现“修好一类、弄坏另一类”的反转。已在 `electron-shellx/src/renderer/styles.css` 移除 `.xterm-rows` 的 `padding-right: 16px`，只保留 `.xterm-rows > div { width: calc(100% + 16px) !important; }`，让 xterm 的列宽/容器模型继续由自身控制，ShellX 只放宽单行裁切边界。验证：`npm run typecheck`、`npm run build`、`git diff --check` 通过；尚未在 macOS Electron 真机中同时手动验证普通长输出、Codex CLI 输出、真实 SSH/TUI、DMG、签名和自动更新。
+
 - 2026-07-06：用户反馈普通终端最右侧字符遮挡已处理，但运行 Codex CLI 时输出内容最右侧文本仍会被遮挡。判断 Codex CLI 这类 TUI/富文本输出更容易触发 xterm DOM renderer 单行节点的右侧裁切边界，上一轮 8px 行宽扩展对部分字形、ANSI 背景或强调文本仍偏紧。已在 `electron-shellx/src/renderer/styles.css` 将 `.terminal-surface .xterm .xterm-rows > div` 的右侧扩展从 8px 提升到 16px，并给 `.xterm-rows` 增加 16px 右侧绘制缓冲；本次不改 PTY 列数、resize 去重或主进程逻辑，避免重新引入 TUI resize 重绘风险。验证：`npm run typecheck`、`npm run build` 通过；尚未在 macOS Electron 真机中运行 Codex CLI 手动确认最右侧文本完整可见，也未验证真实 SSH/TUI、DMG、签名和自动更新。
 
 - 2026-07-05：用户要求移除 `Command+R` 的功能。已在 `electron-shellx/src/main/main.ts` 删除“显示”菜单中的 Electron 默认 `{ role: "reload" }`，并在主窗口 `before-input-event` 中拦截 `CommandOrControl+R`，避免焦点位于终端或页面时触发窗口 Reload；保留 `CommandOrControl+1`、`CommandOrControl+,`、DevTools 和全屏菜单行为不变。验证：`npm run typecheck`、`npm run build` 通过；尚未在 macOS Electron 真机中手动按 `Command+R` 确认窗口不再刷新，也未验证 DMG、签名和自动更新。
