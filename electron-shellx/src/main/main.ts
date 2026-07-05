@@ -482,6 +482,13 @@ function isZoomShortcutInput(input: { key?: string; meta?: boolean; control?: bo
   return Boolean(isCommandOrControl && !input.alt && key && ["+", "=", "-", "_", "0"].includes(key));
 }
 
+function isReloadShortcutInput(input: { key?: string; meta?: boolean; control?: boolean; alt?: boolean; shift?: boolean; type?: string }): boolean {
+  if (input.type && input.type !== "keyDown") return false;
+  const key = input.key?.toLowerCase();
+  const isCommandOrControl = process.platform === "darwin" ? input.meta : input.control;
+  return Boolean(isCommandOrControl && !input.alt && !input.shift && key === "r");
+}
+
 function lockWebContentsZoom(contents: WebContents): void {
   const resetZoom = (): void => {
     if (contents.isDestroyed()) return;
@@ -494,6 +501,10 @@ function lockWebContentsZoom(contents: WebContents): void {
     resetZoom();
   });
   contents.on("before-input-event", (event, input) => {
+    if (isReloadShortcutInput(input)) {
+      event.preventDefault();
+      return;
+    }
     if (!isZoomShortcutInput(input)) return;
     event.preventDefault();
     resetZoom();
@@ -566,7 +577,6 @@ function setNativeMenu(): void {
         menuItem("终端工作台", "view:terminal", undefined, "CommandOrControl+1"),
         menuItem("全局配置", "view:settings", undefined, "CommandOrControl+,"),
         { type: "separator" },
-        { role: "reload" },
         { role: "toggleDevTools" },
         { type: "separator" },
         { role: "togglefullscreen" }
