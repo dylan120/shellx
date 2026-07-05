@@ -271,10 +271,11 @@ function fitAndSyncTerminal(tab: TerminalTab): void {
   if (!tab.pane.isConnected || !tab.pane.classList.contains("active") || tab.pane.clientWidth <= 0 || tab.pane.clientHeight <= 0) return;
   const paneWidth = Math.round(tab.pane.clientWidth);
   const paneHeight = Math.round(tab.pane.clientHeight);
-  if (tab.lastFitPaneWidth === paneWidth && tab.lastFitPaneHeight === paneHeight) return;
+  const paneChanged = tab.lastFitPaneWidth !== paneWidth || tab.lastFitPaneHeight !== paneHeight;
+  const resized = resizeTerminalToFit(tab.terminal, tab.fitAddon);
+  if (!paneChanged && !resized) return;
   tab.lastFitPaneWidth = paneWidth;
   tab.lastFitPaneHeight = paneHeight;
-  resizeTerminalToFit(tab.terminal, tab.fitAddon);
   syncTerminalPtySize(tab);
 }
 
@@ -338,9 +339,13 @@ function terminalSizeFromFit(terminal: Terminal, fitAddon: FitAddon): Pick<Creat
   };
 }
 
-function resizeTerminalToFit(terminal: Terminal, fitAddon: FitAddon): void {
+function resizeTerminalToFit(terminal: Terminal, fitAddon: FitAddon): boolean {
   const size = terminalSizeFromFit(terminal, fitAddon);
-  terminal.resize(size.initialCols ?? terminal.cols, size.initialRows ?? terminal.rows);
+  const cols = size.initialCols ?? terminal.cols;
+  const rows = size.initialRows ?? terminal.rows;
+  if (terminal.cols === cols && terminal.rows === rows) return false;
+  terminal.resize(cols, rows);
+  return true;
 }
 
 function ptyColsForTerminal(terminal: Terminal): number {
