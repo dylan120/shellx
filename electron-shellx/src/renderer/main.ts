@@ -70,7 +70,7 @@ const sidebarMaxWidth = 520;
 const sidebarCollapsedWidth = 0;
 const terminalMinimumRightReservePixels = 16;
 const terminalScrollbarTextGapPixels = 6;
-const terminalPtyRightGuardColumns = 1;
+const terminalPtyRightGuardColumns = 0;
 const terminalLineHeight = 1;
 const terminalTheme = {
   background: "#0c0f11",
