@@ -68,8 +68,11 @@ const sidebarWidthStorageKey = "shellx.sidebarWidth";
 const sidebarMinWidth = 240;
 const sidebarMaxWidth = 520;
 const sidebarCollapsedWidth = 0;
-const terminalMinimumRightReservePixels = 16;
-const terminalScrollbarTextGapPixels = 6;
+const terminalRowClipBufferPixels = 16;
+const terminalRightEdgeGapPixels = 8;
+const terminalDefaultScrollbarWidthPixels = 14;
+const terminalMinimumRightReservePixels = terminalRowClipBufferPixels + terminalRightEdgeGapPixels;
+const terminalScrollbarTextGapPixels = terminalRowClipBufferPixels + terminalRightEdgeGapPixels;
 const terminalPtyRightGuardColumns = 0;
 const terminalLineHeight = 1;
 const terminalTheme = {
@@ -320,10 +323,16 @@ function terminalCellSize(terminal: Terminal): { width: number; height: number }
 
 function terminalScrollbarWidth(terminal: Terminal): number {
   const scrollbar = terminal.element?.querySelector<HTMLElement>(".xterm-scrollable-element > .scrollbar.vertical");
-  if (scrollbar) return Math.max(0, scrollbar.offsetWidth || Number.parseFloat(scrollbar.style.width) || 0);
+  if (scrollbar) {
+    const width = Math.max(0, scrollbar.offsetWidth || Number.parseFloat(scrollbar.style.width) || 0);
+    if (width > 0) return width;
+  }
   const viewport = terminal.element?.querySelector<HTMLElement>(".xterm-viewport");
-  if (!viewport) return 0;
-  return Math.max(0, viewport.offsetWidth - viewport.clientWidth);
+  if (viewport) {
+    const width = Math.max(0, viewport.offsetWidth - viewport.clientWidth);
+    if (width > 0) return width;
+  }
+  return terminal.options.scrollback === 0 ? 0 : terminalDefaultScrollbarWidthPixels;
 }
 
 function terminalSizeFromFit(terminal: Terminal, fitAddon: FitAddon): Pick<CreateTerminalRequest, "initialCols" | "initialRows"> {

@@ -101,7 +101,7 @@ npm run package:dir
 - 本机终端启动时会优先继承宿主进程已有的 `LANG` / `LC_ALL` / `LC_CTYPE`；若图形环境未提供 locale，则兜底为 UTF-8，避免 `ls` 等命令显示中文目录名乱码
 - 本机交互终端会移除宿主进程继承来的 `NO_COLOR`，并保留 `TERM=xterm-256color` / `COLORTERM=truecolor`，避免 Codex CLI 等工具因环境变量禁用 ANSI 彩色输出。
 - 终端子进程启动时会使用当前视图的实际列数和行数创建 PTY；拖动调整窗口大小后，也会把最新尺寸同步给 PTY，让 shell、长行输出和常见 TUI 程序按新窗口宽高重排
-- Electron 新版终端会先按 xterm 实际测量结果创建 PTY，并在创建、切换标签、窗口拖拽缩放和侧栏展开/收起时实时重新 fit；可视终端按 xterm 自定义滚动条和右侧字形溢出安全区换算列数，PTY 与 xterm 使用同一列宽，避免 Codex CLI 等 TUI 按另一套宽度排版，同时通过像素安全区避免 `ps aux` 等长行输出末端压到滚动条或最右绘制边界。
+- Electron 新版终端会先按 xterm 实际测量结果创建 PTY，并在创建、切换标签、窗口拖拽缩放和侧栏展开/收起时实时重新 fit；可视终端按 xterm 自定义滚动条、DOM 行裁切缓冲和右侧可见空隙换算列数，PTY 与 xterm 使用同一列宽，避免 Codex CLI 等 TUI 按另一套宽度排版，同时通过像素安全区避免 `ps aux` 等长行输出末端压到滚动条或最右绘制边界。
 - Electron 新版终端会固定 Chromium 页面缩放，避免误触页面级缩放后 xterm 字体测量、列宽和视觉密度突然变化；终端 ANSI 颜色继续交给 xterm.js 按远端控制序列原样渲染。
 - Electron 新版终端支持 `Command + ←` / `Command + →` 移动到当前命令行行首 / 行尾，便于快速编辑长命令。
 - 同一个 SSH 会话支持同时打开多个独立标签；每个标签都会维护自己独立的终端实例和连接状态
