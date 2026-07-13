@@ -20,9 +20,9 @@ npm run package:dir
 
 - macOS tool-style UI with session tree, detail editor, terminal workbench, script manager, batch execution and settings views.
 - Session/folder/script/settings persistence in the Electron app support directory.
-- Local terminal tabs through the user's default shell, with color-capable terminal environment defaults for interactive CLIs.
+- Local terminal tabs through the user's default shell, with color-capable terminal environment defaults and per-tab Codex CLI input-history isolation.
 - SSH tabs through `/usr/bin/ssh`, including host, port, username, private key, startup command and remote forwarding options.
-- xterm.js fit/resize, fixed Chromium page zoom, tab switching, unread markers, close confirmation and process cleanup.
+- xterm.js fit/resize, ED2 clear-screen scrollback preservation for TUI redraws, fixed Chromium page zoom, tab switching, unread markers, close confirmation and process cleanup.
 - Script library editing and non-interactive batch script execution over `/usr/bin/ssh` for key/agent based sessions.
 - Data import/export, theme settings, scrollback settings and optional selection-to-clipboard.
 - macOS Keychain helper IPC is used for password storage and automatic password prompt fill.

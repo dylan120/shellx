@@ -38,6 +38,7 @@ interface ManagedTerminal {
   decoder: StringDecoder;
   ptyCols: number;
   ptyRows: number;
+  codexHome?: string;
   pendingZmodemInput?: Buffer[];
   pendingZmodemInputBytes?: number;
   pendingZmodemScanTail?: Buffer;
@@ -70,6 +71,9 @@ const zmodemCancelBytes = Buffer.from("\x18\x18\x18\x18\x18\x08\x08\x08\x08\x08\
 const pendingZmodemInputLimit = 1024 * 1024;
 const shellToolPath = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"].join(":");
 const shellToolDirs = shellToolPath.split(":");
+const codexHistoryFileName = "history.jsonl";
+const codexVolatileHomeEntries = new Set([".tmp", "log", "tmp"]);
+const codexSQLiteFilePattern = /^(state|logs|goals|memories)_\d+\.sqlite(?:-(?:shm|wal))?$/;
 
 type AppCommandPayload = Record<string, unknown> | undefined;
 
@@ -133,6 +137,10 @@ function scriptsRoot(): string {
 
 function updatesRoot(): string {
   return path.join(storageRoot(), "Updates");
+}
+
+function codexTerminalHomesRoot(): string {
+  return path.join(storageRoot(), "CodexTerminalHomes");
 }
 
 function legacyShellXRoot(): string {
@@ -200,6 +208,68 @@ async function pathExists(filePath: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function expandHomePath(filePath: string): string {
+  if (filePath === "~") return os.homedir();
+  if (filePath.startsWith("~/")) return path.join(os.homedir(), filePath.slice(2));
+  return filePath;
+}
+
+function resolvedCodexSourceHome(): string | undefined {
+  const configured = process.env.CODEX_HOME?.trim();
+  if (configured) return path.resolve(expandHomePath(configured));
+  const home = os.homedir();
+  return home ? path.join(home, ".codex") : undefined;
+}
+
+function shouldLinkCodexHomeEntry(entryName: string): boolean {
+  if (entryName === codexHistoryFileName) return false;
+  if (codexVolatileHomeEntries.has(entryName)) return false;
+  if (codexSQLiteFilePattern.test(entryName)) return false;
+  return true;
+}
+
+function isPathWithin(parentPath: string, candidatePath: string): boolean {
+  const relative = path.relative(parentPath, candidatePath);
+  return Boolean(relative) && !relative.startsWith("..") && !path.isAbsolute(relative);
+}
+
+async function prepareCodexHomeForTerminal(id: string): Promise<string | undefined> {
+  const sourceHome = resolvedCodexSourceHome();
+  if (!sourceHome || !(await pathExists(sourceHome))) return undefined;
+  const targetHome = path.join(codexTerminalHomesRoot(), id);
+  await fs.rm(targetHome, { recursive: true, force: true });
+  await fs.mkdir(targetHome, { recursive: true });
+
+  // Keep Codex config/session resources shared, but leave history.jsonl per terminal tab.
+  let entries: import("node:fs").Dirent[] = [];
+  try {
+    entries = await fs.readdir(sourceHome, { withFileTypes: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return targetHome;
+    throw error;
+  }
+
+  for (const entry of entries) {
+    if (!shouldLinkCodexHomeEntry(entry.name)) continue;
+    const sourcePath = path.join(sourceHome, entry.name);
+    const targetPath = path.join(targetHome, entry.name);
+    try {
+      await fs.symlink(sourcePath, targetPath, entry.isDirectory() ? "dir" : "file");
+    } catch (error) {
+      console.warn(`Unable to link Codex home entry ${entry.name}:`, error);
+    }
+  }
+
+  return targetHome;
+}
+
+function cleanupCodexHome(codexHome: string | undefined): void {
+  if (!codexHome || !isPathWithin(codexTerminalHomesRoot(), codexHome)) return;
+  void fs.rm(codexHome, { recursive: true, force: true }).catch((error) => {
+    console.warn(`Unable to clean Codex terminal home ${codexHome}:`, error);
+  });
 }
 
 async function replaceDirectory(tempPath: string, targetPath: string): Promise<void> {
@@ -917,11 +987,16 @@ function localShellArgs(shell: string): string[] {
   return [];
 }
 
-function terminalEnvironment(request: CreateTerminalRequest, localShell?: string): NodeJS.ProcessEnv {
+function terminalEnvironment(request: CreateTerminalRequest, localShell?: string, codexHome?: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
   if (request.kind === "local") {
     delete env.NO_COLOR;
     env.CLICOLOR = env.CLICOLOR || "1";
+    if (codexHome) {
+      const sourceHome = resolvedCodexSourceHome();
+      env.CODEX_HOME = codexHome;
+      if (sourceHome && !env.CODEX_SQLITE_HOME) env.CODEX_SQLITE_HOME = sourceHome;
+    }
   }
   return {
     ...env,
@@ -980,10 +1055,11 @@ function sshArgs(request: Extract<CreateTerminalRequest, { kind: "ssh" }>): stri
   return args;
 }
 
-function createPty(request: CreateTerminalRequest): ManagedTerminal {
+async function createPty(request: CreateTerminalRequest): Promise<ManagedTerminal> {
   const id = randomUUID();
   const localShell = request.kind === "local" ? shellPath(request) : undefined;
-  const env = terminalEnvironment(request, localShell);
+  const codexHome = request.kind === "local" ? await prepareCodexHomeForTerminal(id) : undefined;
+  const env = terminalEnvironment(request, localShell, codexHome);
   const cols = Math.max(20, Math.min(400, Math.round(request.initialCols ?? 100)));
   const rows = Math.max(8, Math.min(120, Math.round(request.initialRows ?? 30)));
   const options: pty.IPtyForkOptions = {
@@ -1003,7 +1079,7 @@ function createPty(request: CreateTerminalRequest): ManagedTerminal {
     ? `${request.username ? `${request.username}@` : ""}${request.host}`
     : path.basename(shellPath(request));
 
-  const terminal: ManagedTerminal = { id, title, ptyProcess, decoder: new StringDecoder("utf8"), ptyCols: cols, ptyRows: rows };
+  const terminal: ManagedTerminal = { id, title, ptyProcess, decoder: new StringDecoder("utf8"), ptyCols: cols, ptyRows: rows, codexHome };
   terminals.set(id, terminal);
 
   ptyProcess.onData((data: string | Buffer) => {
@@ -1018,6 +1094,7 @@ function createPty(request: CreateTerminalRequest): ManagedTerminal {
   });
   ptyProcess.onExit(({ exitCode, signal }) => {
     terminal.transfer?.child.kill("SIGTERM");
+    cleanupCodexHome(terminal.codexHome);
     if (!terminal.pendingZmodemInput && terminal.pendingZmodemScanTail?.length) {
       sendTerminalData(terminal, terminal.pendingZmodemScanTail);
       terminal.pendingZmodemScanTail = undefined;
@@ -1475,8 +1552,8 @@ ipcMain.handle("menu:popup", (event, request: ContextMenuRequest) => {
   Menu.buildFromTemplate(contextTemplate(request)).popup({ window });
 });
 
-ipcMain.handle("terminal:create", (_event, request: CreateTerminalRequest): CreateTerminalResponse => {
-  const terminal = createPty(request);
+ipcMain.handle("terminal:create", async (_event, request: CreateTerminalRequest): Promise<CreateTerminalResponse> => {
+  const terminal = await createPty(request);
   return { id: terminal.id, title: terminal.title };
 });
 ipcMain.handle("terminal:zmodemUpload", (_event, payload: { id: string; filePaths: string[] }) => {
@@ -1512,11 +1589,15 @@ ipcMain.on("terminal:dispose", (_event, payload: { id: string }) => {
   const terminal = terminals.get(payload.id);
   if (!terminal) return;
   terminal.ptyProcess.kill();
+  cleanupCodexHome(terminal.codexHome);
   terminals.delete(payload.id);
 });
 
 app.on("window-all-closed", () => {
-  for (const terminal of terminals.values()) terminal.ptyProcess.kill();
+  for (const terminal of terminals.values()) {
+    terminal.ptyProcess.kill();
+    cleanupCodexHome(terminal.codexHome);
+  }
   terminals.clear();
   if (process.platform !== "darwin") app.quit();
 });
