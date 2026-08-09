@@ -100,6 +100,14 @@ const terminalTheme = {
   brightCyan: "#69c7c7",
   brightWhite: "#ffffff"
 };
+
+/**
+ * 保留终端滚动历史：部分 TUI 在退出或重绘时会发送 ED3 清空 scrollback。
+ * ShellX 将终端历史视为可回看输出，因此只拦截该历史清理指令，不干预 ED2 全屏重绘。
+ */
+function preserveTerminalScrollback(terminal: Terminal): void {
+  terminal.parser.registerCsiHandler({ final: "J" }, (params) => params[0] === 3);
+}
 const sessionDoubleClickIntervalMs = 1200;
 const sessionSingleClickDelayMs = 320;
 let sidebarCollapsed = localStorage.getItem(sidebarCollapsedStorageKey) === "true";
@@ -138,6 +146,21 @@ const zmodemDownloadFramePattern = /\*\*\x18B00/;
 const zmodemDownloadAutoStartPattern = /rz\r?\n?\*\*\x18B00/;
 const zmodemUploadHintPattern = /(?:rz\s+(?:waiting|ready|receive)|waiting\s+to\s+receive|receive\s+zmodem)/i;
 const rzWaitingLinePattern = /(?:^|[\r\n])[^\r\n]*(?:rz\s+)?waiting\s+to\s+receive\.[^\r\n]*/i;
+
+/** 将本机绝对路径转换成可直接粘贴到 POSIX shell 的单个参数。 */
+function shellQuotePath(filePath: string): string {
+  return `'${filePath.replace(/'/g, `'"'"'`)}'`;
+}
+
+/** PTY 会先处理控制字符，含控制字符的路径不能安全地作为终端文本输入。 */
+function hasTerminalControlCharacter(filePath: string): boolean {
+  return /[\x00-\x1F\x7F]/.test(filePath);
+}
+
+/** 判断拖放数据是否来自系统文件，而不是 ShellX 内部的树或标签排序。 */
+function hasDroppedFiles(event: DragEvent): boolean {
+  return event.dataTransfer?.types.includes("Files") ?? false;
+}
 
 function keychainAccount(session: SSHSessionProfile): string {
   return `${session.username.trim() || "default"}@${session.host.trim()}:${session.port || 22}`;
@@ -1313,7 +1336,8 @@ async function openTerminal(request: CreateTerminalRequest, titleOverride?: stri
   pane.classList.add("active");
   document.querySelector<HTMLDivElement>("#terminal-stack")?.append(pane);
   document.querySelector<HTMLDivElement>("#empty")?.remove();
-  const terminal = new Terminal({ cursorBlink: true, scrollback: snapshot.settings.terminalScrollback, scrollOnEraseInDisplay: true, fontFamily: "Menlo, Monaco, 'SF Mono', monospace", fontSize: 13, lineHeight: terminalLineHeight, letterSpacing: 0, customGlyphs: true, macOptionIsMeta: true, reflowCursorLine: true, theme: terminalTheme });
+  const terminal = new Terminal({ cursorBlink: true, scrollback: snapshot.settings.terminalScrollback, scrollOnUserInput: false, allowProposedApi: true, fontFamily: "Menlo, Monaco, 'SF Mono', monospace", fontSize: 13, lineHeight: terminalLineHeight, letterSpacing: 0, customGlyphs: true, macOptionIsMeta: true, reflowCursorLine: true, theme: terminalTheme });
+  preserveTerminalScrollback(terminal);
   const fitAddon = new FitAddon();
   terminal.loadAddon(fitAddon);
   terminal.open(surface);
@@ -1321,6 +1345,34 @@ async function openTerminal(request: CreateTerminalRequest, titleOverride?: stri
   const initialPtySize = terminalPtySize(terminal);
   const { id, title } = await window.shellx.terminal.create({ ...request, ...initialPtySize });
   pane.addEventListener("contextmenu", (event) => { event.preventDefault(); activateTab(id); menu("terminal", { id }); });
+  surface.addEventListener("dragover", (event) => {
+    if (!hasDroppedFiles(event)) return;
+    event.preventDefault();
+    event.dataTransfer!.dropEffect = "copy";
+    surface.classList.add("file-drop-target");
+  });
+  surface.addEventListener("dragleave", (event) => {
+    if (event.relatedTarget instanceof Node && surface.contains(event.relatedTarget)) return;
+    surface.classList.remove("file-drop-target");
+  });
+  surface.addEventListener("drop", (event) => {
+    if (!hasDroppedFiles(event)) return;
+    event.preventDefault();
+    surface.classList.remove("file-drop-target");
+    if (tabs.get(id)?.zmodemActive) {
+      setStatus("lrzsz 传输进行中，暂不能输入文件路径", false, true);
+      return;
+    }
+    const filePaths = window.shellx.terminal.pathsForFiles(Array.from(event.dataTransfer?.files ?? []));
+    if (filePaths.length === 0) return;
+    if (filePaths.some(hasTerminalControlCharacter)) {
+      setStatus("文件路径包含终端控制字符，无法安全输入", false, true);
+      return;
+    }
+    window.shellx.terminal.write(id, filePaths.map(shellQuotePath).join(" "));
+    terminal.focus();
+    setStatus(`已输入 ${filePaths.length} 个文件的绝对路径`, false, true);
+  });
   terminal.onData((data) => window.shellx.terminal.write(id, data));
   terminal.onResize(() => {
     const tab = tabs.get(id);

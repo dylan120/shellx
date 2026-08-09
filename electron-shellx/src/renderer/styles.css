@@ -187,6 +187,7 @@ input:focus, textarea:not(.xterm-helper-textarea):not(.syntax-input):focus, sele
 .terminal-pane { position: absolute; inset: 0; overflow: hidden; visibility: hidden; background: var(--terminal); }
 .terminal-pane.active { visibility: visible; }
 .terminal-surface { position: absolute; inset: 0; overflow: hidden; background: radial-gradient(circle at 78% 0%, rgb(69 215 196 / 5%), transparent 32%), var(--terminal); }
+.terminal-surface.file-drop-target { box-shadow: inset 0 0 0 2px var(--accent); }
 .terminal-surface .xterm { width: 100%; height: 100%; }
 .terminal-surface .xterm-viewport, .terminal-surface .xterm-screen { background-color: var(--terminal) !important; }
 .terminal-surface .xterm-viewport { overflow: hidden !important; }

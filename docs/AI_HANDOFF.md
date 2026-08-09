@@ -29,6 +29,10 @@ npm run package:dir
 
 ## 最近交接
 
+- 2026-08-09：修复终端偶发自动滚动、Codex CLI 等 TUI 最新输出看似消失的问题。根因是此前全局启用 xterm `scrollOnEraseInDisplay`，会将 TUI 常用的 `CSI 2 J` 全屏重绘误当普通清屏并推入 scrollback，破坏当前屏幕语义；同时 xterm 默认 `scrollOnUserInput` 会在用户输入时强制回到底部。现已恢复 ED2 标准重绘（移除 `scrollOnEraseInDisplay`），设置 `scrollOnUserInput: false` 以保留用户当前历史视口，并通过 xterm parser 拦截 `CSI 3 J` 对 scrollback 的清理，防止 TUI 退出/重绘删除可回看历史。验证待执行：`npm run typecheck`、`npm run build`、`git diff --check`；尚未在 macOS Electron GUI 中长时间运行 Codex CLI 验证连续输出、上下键、滚动查看历史、窗口缩放和标签切换。
+
+- 2026-08-09：新增“拖入文件到终端”能力。渲染层仅在终端表面接收系统 `Files` 拖放，拖放时沿用现有 `--accent` 高亮；预加载层通过 Electron `webUtils.getPathForFile()` 解析绝对路径，未向渲染层暴露 Node 文件系统能力。路径会用 POSIX shell 单引号转义（文件名含空格、单引号可安全作为参数），支持一次拖入多个文件，以空格分隔写入当前终端 PTY，且不自动回车执行；lrzsz 传输中会拒绝写入，避免干扰二进制传输；包含 CR、LF、ESC 等控制字符的路径会被拒绝，避免 PTY 行规程提前提交或处理控制序列。同步更新根 README 与 Electron README。验证：在 `electron-shellx` 执行 `npm run typecheck`、`npm run build`、`git diff --check` 通过。尚未在 macOS Electron GUI 中手动从 Finder 拖入单文件、多文件、带空格/单引号文件名，也未验证真实 SSH、DMG、签名和自动更新。
+
 - 2026-07-15：已移除上一轮终端边界问题的本地调试图片，并从 Git 历史、GitHub `main` 分支和相关版本标签中清除该二进制对象。保留终端宽度修复代码和验证结论；本次不涉及 Electron 功能代码变更。
 
 - 2026-07-13：用户反馈 Codex CLI 中英文混排长行超出终端右侧边界。通过 macOS Electron 开发者协议实测相同中文长行后确认：xterm 与 PTY 列数、滚动条和右侧安全区计算已经一致；根因是 xterm 6 DOM renderer 的 `WidthCache` 使用同一字符重复 32 次测宽，Chromium 默认 `text-spacing-trim: normal` 会在这个样本里把连续全角标点（如 `，。：；、`）压缩为约半宽，但实际终端行中单个标点仍按全宽绘制。xterm 因此给每个标点追加过大 `letter-spacing`，误差在长行中累积至约 30px 并越过 row/窗口边界。已在 `electron-shellx/src/renderer/styles.css` 对 xterm 隐藏宽度测量容器和实际 DOM rows 统一设置 `text-spacing-trim: space-all`，使全角标点的测量与绘制宽度一致，不再扩大通用安全区或改变 PTY 列数。README 已同步说明。验证：`npm run typecheck`、`npm run build`、`git diff --check` 通过；在 macOS Electron 开发版中收起侧栏并输出同类中英文长行，所有可见 span 均位于 xterm row 内，最右文本距窗口边界约 44px，纯英文恰好写满 PTY 列数时也未越界；`npm run package:dir` 成功，`codesign --verify --deep --strict` 通过，打包后 `app.asar` 已包含该 CSS 属性。尚未连接真实 SSH 主机运行 Codex CLI，也未构建 DMG 或验证发布签名与自动更新。

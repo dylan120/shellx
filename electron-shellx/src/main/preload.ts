@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type {
   AppSettings,
   AppSnapshot,
@@ -33,6 +33,13 @@ const terminalAPI = {
   },
   write(id: string, data: string): void {
     ipcRenderer.send("terminal:write", { id, data });
+  },
+  /**
+   * 将 Chromium 拖放对象转换为本机绝对路径。
+   * 路径解析留在预加载层，渲染层不需要也不会获得 Node 文件系统能力。
+   */
+  pathsForFiles(files: File[]): string[] {
+    return files.map((file) => webUtils.getPathForFile(file)).filter(Boolean);
   },
   resize(id: string, cols: number, rows: number): void {
     ipcRenderer.send("terminal:resize", { id, cols, rows });
