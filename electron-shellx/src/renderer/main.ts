@@ -117,6 +117,7 @@ let lastSessionClick: { id: string; at: number } | null = null;
 let pendingSessionClickRenderTimer: number | undefined;
 let suppressNextSessionClickID: string | null = null;
 let terminalFitFrame: number | undefined;
+let terminalTabsRenderFrame: number | undefined;
 let selectionClipboardTimer: number | undefined;
 let selectionClipboardSerial = 0;
 
@@ -324,6 +325,18 @@ function scheduleActiveTerminalFitAfterLayout(): void {
   window.requestAnimationFrame(() => scheduleActiveTerminalFit());
 }
 
+/**
+ * 合并同一帧内的标签状态更新，避免后台高频输出反复销毁并重建标签 DOM。
+ * 终端内容仍会立即写入 xterm；这里只延迟未读标记和连接状态的视觉刷新。
+ */
+function scheduleTerminalTabsRender(): void {
+  if (terminalTabsRenderFrame) return;
+  terminalTabsRenderFrame = window.requestAnimationFrame(() => {
+    terminalTabsRenderFrame = undefined;
+    renderTabs();
+  });
+}
+
 function expandSidebar(): void {
   setSidebarCollapsed(false);
 }
@@ -470,7 +483,10 @@ function scriptFolderName(folderID?: string): string {
 
 function scriptFolderOptions(): [string, string][] {
   const options: [string, string][] = [["", "未分组"]];
+  const visited = new Set<string>();
   const append = (folder: ScriptFolder, level: number): void => {
+    if (visited.has(folder.id)) return;
+    visited.add(folder.id);
     options.push([folder.id, `${"  ".repeat(level)}${folder.name}`]);
     for (const child of childScriptFolders(folder.id)) append(child, level + 1);
   };
@@ -615,20 +631,29 @@ function checkbox(label: string, value: boolean, onInput: (value: boolean) => vo
 
 function render(): void {
   document.documentElement.dataset.theme = snapshot.settings.theme;
-  appRoot.innerHTML = `
-    <main class="shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${windowFullScreen ? "window-fullscreen" : ""}">
+  let shell = appRoot.querySelector<HTMLElement>(".shell");
+  if (!shell) {
+    appRoot.innerHTML = `
+    <main class="shell">
       <aside class="sidebar">
-        <section class="brand">
-          <div class="brand-copy"><h1>ShellX</h1><p>SSH 会话、终端、脚本和传输工作台</p></div>
-          <button id="sidebar-toggle" class="sidebar-toggle" type="button" title="${sidebarCollapsed ? "展开侧边栏" : "折叠侧边栏"}" aria-label="${sidebarCollapsed ? "展开侧边栏" : "折叠侧边栏"}" aria-expanded="${!sidebarCollapsed}">${sidebarCollapsed ? "›" : "‹"}</button>
-        </section>
-        ${sidebarCollapsed ? "" : `<nav class="tree" id="tree"></nav>`}
-        <div id="sidebar-resizer" class="sidebar-resizer" role="separator" aria-orientation="vertical" aria-label="调整侧边栏宽度"></div>
       </aside>
       <section class="mainpane">
         <section class="content" id="content"></section>
       </section>
     </main>
+  `;
+    shell = appRoot.querySelector<HTMLElement>(".shell");
+  }
+  if (!shell) throw new Error("Missing shell root");
+  shell.className = `shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${windowFullScreen ? "window-fullscreen" : ""}`;
+  const sidebar = shell.querySelector<HTMLElement>(".sidebar")!;
+  sidebar.innerHTML = `
+    <section class="brand">
+      <div class="brand-copy"><h1>ShellX</h1><p>SSH 会话、终端、脚本和传输工作台</p></div>
+      <button id="sidebar-toggle" class="sidebar-toggle" type="button" title="折叠侧边栏" aria-label="折叠侧边栏" aria-expanded="true"><span class="sidebar-toggle-glyph close"></span></button>
+    </section>
+    ${sidebarCollapsed ? "" : `<nav class="tree" id="tree"></nav>`}
+    <div id="sidebar-resizer" class="sidebar-resizer" role="separator" aria-orientation="vertical" aria-label="调整侧边栏宽度"></div>
   `;
   applySidebarWidth();
   bindPressAction(document.querySelector<HTMLButtonElement>("#sidebar-toggle"), () => setSidebarCollapsed(!sidebarCollapsed));
@@ -787,8 +812,11 @@ async function moveSession(sessionID: string, targetFolderID?: string): Promise<
 
 function isDescendantFolder(folderID: string, possibleParentID?: string): boolean {
   let cursor = possibleParentID;
+  const visited = new Set<string>();
   while (cursor) {
     if (cursor === folderID) return true;
+    if (visited.has(cursor)) return false;
+    visited.add(cursor);
     cursor = snapshot.workspace.folders.find((folder) => folder.id === cursor)?.parentID;
   }
   return false;
@@ -882,7 +910,9 @@ function sessionRow(session: SSHSessionProfile, level = 0): HTMLDivElement {
   return row;
 }
 
-function renderFolder(parent: HTMLElement, folder: SessionFolder, level: number): void {
+function renderFolder(parent: HTMLElement, folder: SessionFolder, level: number, ancestors = new Set<string>()): void {
+  if (ancestors.has(folder.id)) return;
+  const nextAncestors = new Set(ancestors).add(folder.id);
   const expanded = expandedFolderIDs.has(folder.id);
   const row = treeRow(folder.name, selectedFolderID === folder.id && !selectedSessionID, "folder", () => {
     selectedFolderID = folder.id;
@@ -908,7 +938,7 @@ function renderFolder(parent: HTMLElement, folder: SessionFolder, level: number)
   enableTreeDrop(row, folder.id);
   parent.append(row);
   if (expanded) {
-    for (const child of childFolders(folder.id)) renderFolder(parent, child, level + 1);
+    for (const child of childFolders(folder.id)) renderFolder(parent, child, level + 1, nextAncestors);
     for (const session of childSessions(folder.id)) parent.append(sessionRow(session, level + 1));
   }
 }
@@ -920,29 +950,43 @@ function renderContent(): void {
 }
 
 function renderTerminalWorkbench(content: HTMLElement): void {
-  content.innerHTML = `<section class="workspace"><div class="resourcebar" id="resourcebar"></div><div class="tabbar" id="tabbar"></div><div class="terminal-stack" id="terminal-stack"><div class="empty" id="empty">打开本机终端或选择 SSH 会话连接。</div></div><div class="statusbar" id="statusbar"><span class="status-spinner"></span><span id="status-text">Ready</span><span class="status-separator"></span><span id="status-host" class="status-host">本机终端</span><button id="status-copy-host" class="status-icon-button" type="button" title="复制 IP">⧉</button><div id="status-tags" class="status-tags"></div></div></section>`;
-  const resourcebar = document.querySelector<HTMLDivElement>("#resourcebar")!;
+  if (!content.querySelector(".workspace")) {
+    content.innerHTML = `<section class="workspace"><div class="resourcebar" id="resourcebar"></div><div class="tabbar" id="tabbar"></div><div class="terminal-stack" id="terminal-stack"><div class="empty" id="empty">打开本机终端或选择 SSH 会话连接。</div></div><div class="statusbar" id="statusbar"><span class="status-spinner"></span><span id="status-text">Ready</span><span class="status-separator"></span><span id="status-host" class="status-host">本机终端</span><button id="status-copy-host" class="status-icon-button" type="button" title="复制 IP">⧉</button><div id="status-tags" class="status-tags"></div></div></section>`;
+  }
+  const workspace = content.querySelector<HTMLElement>(".workspace")!;
+  let resourcebar = workspace.querySelector<HTMLDivElement>("#resourcebar");
   if (tabs.size >= snapshot.settings.freezeThreshold) {
+    if (!resourcebar) {
+      resourcebar = h("div", "resourcebar") as HTMLDivElement;
+      resourcebar.id = "resourcebar";
+      workspace.prepend(resourcebar);
+    }
     resourcebar.textContent = `${tabs.size} 个终端标签正在运行。可通过右键标签固定、关闭或切换。`;
   } else {
-    resourcebar.remove();
+    resourcebar?.remove();
   }
-  const stack = document.querySelector<HTMLDivElement>("#terminal-stack")!;
-  for (const tab of tabs.values()) stack.append(tab.pane);
+  const stack = workspace.querySelector<HTMLDivElement>("#terminal-stack")!;
+  for (const tab of tabs.values()) {
+    if (!tab.pane.isConnected) stack.append(tab.pane);
+  }
   resizeObserver.observe(stack);
   renderTabs();
-  document.querySelector<HTMLButtonElement>("#status-copy-host")?.addEventListener("click", () => void copyActiveHost());
+  const copyHost = workspace.querySelector<HTMLButtonElement>("#status-copy-host");
+  if (copyHost && !copyHost.dataset.bound) {
+    copyHost.dataset.bound = "true";
+    copyHost.addEventListener("click", () => void copyActiveHost());
+  }
   updateStatusbar();
 }
 
 function renderSessionReadOnly(content: HTMLElement): void {
   const session = selectedSession();
   if (!session) {
-    content.innerHTML = `<section class="detail-page">${sidebarCollapsed ? `<button id="detail-sidebar-reopen" class="detail-sidebar-reopen" type="button" title="展开侧边栏" aria-label="展开侧边栏">›</button>` : ""}<div class="empty-state"><div class="empty-icon">⌁</div><h2>选择一个会话</h2><p>从左侧文件夹树中选择 SSH 会话，查看连接信息、认证方式和启动配置。</p></div></section>`;
+    content.innerHTML = `<section class="detail-page">${sidebarCollapsed ? `<button id="detail-sidebar-reopen" class="detail-sidebar-reopen" type="button" title="展开侧边栏" aria-label="展开侧边栏"><span class="sidebar-toggle-glyph open"></span></button>` : ""}<div class="empty-state"><div class="empty-icon">⌁</div><h2>选择一个会话</h2><p>从左侧文件夹树中选择 SSH 会话，查看连接信息、认证方式和启动配置。</p></div></section>`;
     bindPressAction(document.querySelector<HTMLButtonElement>("#detail-sidebar-reopen"), expandSidebar);
     return;
   }
-  content.innerHTML = `<section class="detail-page" id="detail-page">${sidebarCollapsed ? `<button id="detail-sidebar-reopen" class="detail-sidebar-reopen" type="button" title="展开侧边栏" aria-label="展开侧边栏">›</button>` : ""}</section>`;
+  content.innerHTML = `<section class="detail-page" id="detail-page">${sidebarCollapsed ? `<button id="detail-sidebar-reopen" class="detail-sidebar-reopen" type="button" title="展开侧边栏" aria-label="展开侧边栏"><span class="sidebar-toggle-glyph open"></span></button>` : ""}</section>`;
   bindPressAction(document.querySelector<HTMLButtonElement>("#detail-sidebar-reopen"), expandSidebar);
   const detail = document.querySelector<HTMLDivElement>("#detail-page")!;
   const hero = h("section", "session-hero");
@@ -1103,23 +1147,26 @@ function renderTabs(): void {
   if (!tabbar) return;
   hideTabPreview();
   tabbar.replaceChildren();
-  if (!tabbar.dataset.scrollBound) {
-    tabbar.dataset.scrollBound = "true";
-    tabbar.addEventListener("wheel", (event) => {
-      const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
-      if (!delta) return;
-      event.preventDefault();
-      tabbar.scrollLeft += delta;
-    }, { passive: false });
-  }
   if (sidebarCollapsed) {
-    const reopen = h("button", "tabbar-sidebar-reopen", "›") as HTMLButtonElement;
+    const controls = h("div", "tabbar-controls");
+    const reopen = h("button", "tabbar-sidebar-reopen", "") as HTMLButtonElement;
     reopen.type = "button";
     reopen.title = "展开侧边栏";
     reopen.setAttribute("aria-label", "展开侧边栏");
+    reopen.append(h("span", "sidebar-toggle-glyph open", ""));
     bindPressAction(reopen, expandSidebar);
-    tabbar.append(reopen);
+    controls.append(reopen);
+    tabbar.append(controls);
   }
+  const tabScroller = h("div", "tabbar-tabs");
+  tabScroller.addEventListener("wheel", (event) => {
+    const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+    if (!delta) return;
+    event.preventDefault();
+    tabScroller.scrollLeft += delta;
+  }, { passive: false });
+  bindTabDropZone(tabScroller);
+  tabbar.append(tabScroller);
   for (const tab of tabs.values()) {
     const status = tabStatus(tab);
     const row = h("button", `terminal-tab ${tab.id === activeTabID ? "active" : ""} ${tab.unread ? "unread" : ""} ${status.className}`);
@@ -1160,32 +1207,83 @@ function renderTabs(): void {
     row.addEventListener("dragstart", (event) => {
       event.dataTransfer?.setData("application/x-shellx-tab", tab.id);
       event.dataTransfer!.effectAllowed = "move";
+      row.classList.add("dragging");
     });
-    row.addEventListener("dragover", (event) => {
-      if (event.dataTransfer?.types.includes("application/x-shellx-tab")) { event.preventDefault(); row.classList.add("drop-target"); }
-    });
-    row.addEventListener("dragleave", () => row.classList.remove("drop-target"));
-    row.addEventListener("drop", (event) => {
-      event.preventDefault();
-      row.classList.remove("drop-target");
-      const sourceID = event.dataTransfer?.getData("application/x-shellx-tab");
-      if (sourceID) reorderTab(sourceID, tab.id);
+    row.addEventListener("dragend", () => {
+      row.classList.remove("dragging");
+      clearTabDropFeedback(tabScroller);
     });
     row.addEventListener("contextmenu", (event) => { event.preventDefault(); menu("tab", { id: tab.id }); });
     row.addEventListener("mouseenter", () => showTabPreview(tab, row));
     row.addEventListener("mouseleave", hideTabPreview);
-    tabbar.append(row);
+    tabScroller.append(row);
   }
 }
 
-function reorderTab(sourceID: string, targetID: string): void {
-  if (sourceID === targetID) return;
+type TabDropPosition = "before" | "after";
+
+/** 清除一次标签拖放产生的插入线和源标签弱化状态。 */
+function clearTabDropFeedback(tabScroller: HTMLElement): void {
+  for (const row of tabScroller.querySelectorAll(".terminal-tab")) row.classList.remove("drop-before", "drop-after");
+  tabScroller.classList.remove("drop-at-end");
+}
+
+/** 标签左右半区分别表示前插和后插，标签间隙与栏尾空白同样可放置。 */
+function tabDropBoundary(tabScroller: HTMLElement, clientX: number): { targetID?: string; position: TabDropPosition } {
+  const rows = [...tabScroller.querySelectorAll<HTMLElement>(".terminal-tab:not(.dragging)")];
+  for (const row of rows) {
+    const rect = row.getBoundingClientRect();
+    if (clientX < rect.left + rect.width / 2) return { targetID: row.dataset.tabId, position: "before" };
+    if (clientX <= rect.right) return { targetID: row.dataset.tabId, position: "after" };
+  }
+  return { targetID: rows.at(-1)?.dataset.tabId, position: "after" };
+}
+
+/** 拖近左右边缘时横向滚动，使当前不可见的目标标签也能到达。 */
+function autoScrollTabbar(tabScroller: HTMLElement, clientX: number): void {
+  const rect = tabScroller.getBoundingClientRect();
+  const edge = Math.min(64, rect.width * 0.18);
+  if (clientX < rect.left + edge) tabScroller.scrollLeft -= Math.ceil((rect.left + edge - clientX) / 4);
+  else if (clientX > rect.right - edge) tabScroller.scrollLeft += Math.ceil((clientX - (rect.right - edge)) / 4);
+}
+
+/** 统一处理整条标签区的拖放，覆盖标签间隙、栏尾和边缘自动滚动。 */
+function bindTabDropZone(tabScroller: HTMLElement): void {
+  tabScroller.addEventListener("dragover", (event) => {
+    if (!event.dataTransfer?.types.includes("application/x-shellx-tab")) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    autoScrollTabbar(tabScroller, event.clientX);
+    clearTabDropFeedback(tabScroller);
+    const boundary = tabDropBoundary(tabScroller, event.clientX);
+    const target = boundary.targetID ? tabScroller.querySelector<HTMLElement>(`[data-tab-id="${CSS.escape(boundary.targetID)}"]`) : null;
+    if (target) target.classList.add(boundary.position === "before" ? "drop-before" : "drop-after");
+    else tabScroller.classList.add("drop-at-end");
+  });
+  tabScroller.addEventListener("dragleave", (event) => {
+    if (event.relatedTarget instanceof Node && tabScroller.contains(event.relatedTarget)) return;
+    clearTabDropFeedback(tabScroller);
+  });
+  tabScroller.addEventListener("drop", (event) => {
+    if (!event.dataTransfer?.types.includes("application/x-shellx-tab")) return;
+    event.preventDefault();
+    const sourceID = event.dataTransfer.getData("application/x-shellx-tab");
+    const boundary = tabDropBoundary(tabScroller, event.clientX);
+    tabScroller.querySelector(`[data-tab-id="${CSS.escape(sourceID)}"]`)?.classList.remove("dragging");
+    clearTabDropFeedback(tabScroller);
+    if (sourceID) reorderTab(sourceID, boundary.targetID, boundary.position);
+  });
+}
+
+/** 按明确的前插/后插语义重排标签；没有目标时放到末尾。 */
+function reorderTab(sourceID: string, targetID?: string, position: TabDropPosition = "before"): void {
   const entries = [...tabs.entries()];
   const sourceIndex = entries.findIndex(([id]) => id === sourceID);
-  const targetIndex = entries.findIndex(([id]) => id === targetID);
-  if (sourceIndex < 0 || targetIndex < 0) return;
+  if (sourceIndex < 0) return;
   const [source] = entries.splice(sourceIndex, 1);
-  entries.splice(targetIndex, 0, source!);
+  const targetIndex = targetID ? entries.findIndex(([id]) => id === targetID) : -1;
+  const insertIndex = targetIndex < 0 ? entries.length : targetIndex + (position === "after" ? 1 : 0);
+  entries.splice(insertIndex, 0, source!);
   tabs.clear();
   for (const [id, tab] of entries) tabs.set(id, tab);
   renderTabs();
@@ -1401,7 +1499,7 @@ async function openTerminal(request: CreateTerminalRequest, titleOverride?: stri
       if (tab.connecting) {
         tab.connecting = false;
         if (activeTabID === id) setStatus(defaultStatusForTab(tab), false, false);
-        renderTabs();
+        scheduleTerminalTabsRender();
       }
       void handlePasswordPrompt(tab);
       if (!hasZmodemMarker && !tab.zmodemActive) tab.zmodemHandled = false;
@@ -1411,7 +1509,7 @@ async function openTerminal(request: CreateTerminalRequest, titleOverride?: stri
       tab.unread = true;
       if (/password:|passphrase|\?\s*$|\[sudo\]|continue connecting|yes\/no/i.test(data)) tab.attention = "prompt";
       if (/error|failed|denied|refused|timeout|no route|permission denied/i.test(data)) tab.attention = "error";
-      renderTabs();
+      scheduleTerminalTabsRender();
     }
   });
   const disposeExit = window.shellx.terminal.onExit(id, ({ exitCode }) => {
@@ -1623,7 +1721,9 @@ async function deleteScriptFolder(folderID?: string): Promise<void> {
   await persistScripts();
 }
 
-function renderScriptFolder(parent: HTMLElement, folder: ScriptFolder, level: number, content: HTMLElement): void {
+function renderScriptFolder(parent: HTMLElement, folder: ScriptFolder, level: number, content: HTMLElement, ancestors = new Set<string>()): void {
+  if (ancestors.has(folder.id)) return;
+  const nextAncestors = new Set(ancestors).add(folder.id);
   const expanded = expandedScriptFolderIDs.has(folder.id);
   const row = treeRow(folder.name, selectedScriptFolderID === folder.id && !selectedScriptID, "folder", () => {
     selectedScriptFolderID = folder.id;
@@ -1641,7 +1741,7 @@ function renderScriptFolder(parent: HTMLElement, folder: ScriptFolder, level: nu
   enableScriptTreeDrop(row, folder.id);
   parent.append(row);
   if (expanded) {
-    for (const child of childScriptFolders(folder.id)) renderScriptFolder(parent, child, level + 1, content);
+    for (const child of childScriptFolders(folder.id)) renderScriptFolder(parent, child, level + 1, content, nextAncestors);
     for (const script of childScripts(folder.id)) parent.append(scriptRow(script, level + 1, content));
   }
 }
@@ -1688,8 +1788,11 @@ async function moveScript(scriptID: string, targetFolderID?: string): Promise<vo
 
 function isDescendantScriptFolder(folderID: string, possibleParentID?: string): boolean {
   let cursor = possibleParentID;
+  const visited = new Set<string>();
   while (cursor) {
     if (cursor === folderID) return true;
+    if (visited.has(cursor)) return false;
+    visited.add(cursor);
     cursor = snapshot.scriptLibrary.folders.find((folder) => folder.id === cursor)?.parentID;
   }
   return false;

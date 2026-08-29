@@ -1,5 +1,9 @@
 # AI 交接记录
 
+- 2026-08-30：用户反馈 ShellX 偶发整个终端窗口黑屏、但 macOS 顶部原生菜单仍可操作，并追问 `CrRendererMain` 约 9.8 万层递归能否优化。读取本机两份真实崩溃报告（2026-08-27、2026-08-30）确认均为 ShellX 1.3.28 / Electron 42.3.0 的 renderer 主线程 `EXC_BAD_ACCESS` / `SIGSEGV`，进程分别长期运行约 4 天和 2 天后发生；使用 Electron 42.3.0 官方 Breakpad 符号将重复地址还原为 `blink::AXObjectCacheImpl::RemoveSubtree`，调用链包含 `Node::DetachLayoutTree` / `Element::RebuildLayoutTree`。根因触发面是渲染层普通 `render()` 使用 `appRoot.innerHTML` 拆卸包含全部 xterm 的整棵页面 DOM，以及后台输出频繁重建标签 DOM，长期反复触发 Chromium 无障碍树同步递归清理。修复：`renderer/main.ts` 改为只初始化一次 Shell 容器，普通刷新只重建侧栏，现有 `.workspace` / `.terminal-stack` / xterm pane 保持连接；标签连接/未读状态更新通过 `requestAnimationFrame` 合并；会话/脚本文件夹遍历和祖先判断补充 visited/ancestor 防环。`main/main.ts` 新增 `render-process-gone` 诊断与有限自动恢复：将脱敏的时间、原因、退出码和应用/Electron/Chrome 版本追加到 `renderer-failures.jsonl`，先统一终止 PTY、lrzsz helper 和临时 Codex Home，再 reload；60 秒内第三次异常则提示重启或退出，避免恢复循环。Electron 同主版本从 42.3.0 升到 42.10.1。验证：`npm run typecheck`、`npm run build`、`npm run package:dir`、`git diff --check` 和 App 深度签名校验通过；隔离用户目录运行打包 App，连续 20 次折叠/展开侧栏后 xterm DOM identity 未变化且始终 connected；连续对临时 renderer 发送 3 次 `SIGSEGV`，前 2 次均自动恢复出 1 个新终端且旧 PTY 已清理，第 3 次停止自动 reload 并进入错误提示门禁；失败日志均记录 `reason=crashed`、`exitCode=11`、Electron 42.10.1。未覆盖：需数天级 soak test 证明原生递归不再出现；真实 SSH/lrzsz、Keychain、更新安装及 DMG 未手工验证。兼容性：无数据/API/Schema 破坏；renderer 崩溃恢复会主动断开当时全部终端连接，这是清除不可恢复 IPC/DOM 状态并避免孤儿进程的必要行为。
+
+- 2026-08-27：修复终端标签较多且侧栏已折叠时，标签栏中的侧栏展开按钮会随横向内容滚出视口的问题，并优化侧栏折叠/展开按钮视觉。终端标签栏现拆分为固定左侧工具区与独立可滚动标签区，展开入口始终可见；侧栏头部、终端标签栏和详情页统一使用现有主题 token、28px 控件尺寸和侧栏示意图标，补充 `focus-visible`，未新增样式 token。标签拖拽从“仅目标标签本体接收 drop”改为整条可滚动标签区统一判定，按目标标签左右半区执行前插/后插，同时覆盖标签间隙和栏尾空白，提供插入线、拖动源弱化和左右边缘自动滚动。同步更新根 README 与 Electron README。验证：在 `electron-shellx` 执行 `npm run typecheck`、`npm run build`、`npm run package:dir`、`git diff --check` 通过；本地 `.app` 已生成并完成 ad-hoc 签名。尚未在 macOS Electron GUI 中手动验证大量标签下的按钮固定、触控板横向滚动、跨视口拖拽和不同窗口宽度，也未验证真实 SSH、DMG、发布签名和自动更新。
+
 本文件用于在 Codex、Hermes、Claude Code、Cursor、Windsurf 等编程模型之间传递上下文。每次任务开始前必须读取，每次任务结束前必须更新。
 
 ## 项目概览

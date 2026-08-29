@@ -22,7 +22,7 @@ npm run package:dir
 - Session/folder/script/settings persistence in the Electron app support directory.
 - Local terminal tabs through the user's default shell, with color-capable terminal environment defaults and per-tab Codex CLI input-history isolation.
 - SSH tabs through `/usr/bin/ssh`, including host, port, username, private key, startup command and remote forwarding options.
-- xterm.js fit/resize, consistent CJK punctuation measurement and rendering, ED2 clear-screen scrollback preservation for TUI redraws, fixed Chromium page zoom, tab switching, unread markers, close confirmation and process cleanup.
+- xterm.js fit/resize, consistent CJK punctuation measurement and rendering, ED2 clear-screen scrollback preservation for TUI redraws, fixed Chromium page zoom, tab switching, unread markers, close confirmation and process cleanup. The terminal workbench keeps xterm DOM nodes mounted across ordinary UI renders, and high-frequency background tab status updates are coalesced per animation frame. If the renderer exits unexpectedly, the main process logs a redacted failure record, cleans up old PTYs and transfer helpers, then performs bounded automatic recovery. The sidebar reopen control stays fixed beside the scrollable tabs; tab dragging accepts gaps and the trailing area, shows an insertion line, and scrolls near horizontal edges.
 - Dragging local files into a terminal writes their absolute paths as shell-quoted text, without automatically executing the command.
 - Script library editing and non-interactive batch script execution over `/usr/bin/ssh` for key/agent based sessions.
 - Data import/export, theme settings, scrollback settings and optional selection-to-clipboard.

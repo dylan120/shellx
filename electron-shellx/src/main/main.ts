@@ -39,6 +39,7 @@ interface ManagedTerminal {
   ptyCols: number;
   ptyRows: number;
   codexHome?: string;
+  disposed?: boolean;
   pendingZmodemInput?: Buffer[];
   pendingZmodemInputBytes?: number;
   pendingZmodemScanTail?: Buffer;
@@ -59,6 +60,7 @@ const terminals = new Map<string, ManagedTerminal>();
 let mainWindow: BrowserWindow | null = null;
 let didCreateMainWindow = false;
 let pendingDownloadedUpdate: { assetPath: string; latestVersion: string } | null = null;
+let rendererRecoveryTimestamps: number[] = [];
 const fixedWebContentsZoomLevel = 0;
 const fixedWebContentsZoomFactor = 1;
 const zmodemIntroBytes = Buffer.from("**\x18", "binary");
@@ -269,6 +271,77 @@ function cleanupCodexHome(codexHome: string | undefined): void {
   if (!codexHome || !isPathWithin(codexTerminalHomesRoot(), codexHome)) return;
   void fs.rm(codexHome, { recursive: true, force: true }).catch((error) => {
     console.warn(`Unable to clean Codex terminal home ${codexHome}:`, error);
+  });
+}
+
+/**
+ * 统一停止单个终端及其传输子进程；renderer 崩溃时必须先清理，避免重载后遗留孤儿 PTY。
+ */
+function stopManagedTerminal(terminal: ManagedTerminal): void {
+  if (terminal.disposed) return;
+  terminal.disposed = true;
+  const transfer = terminal.transfer;
+  terminal.transfer = undefined;
+  transfer?.child.kill("SIGTERM");
+  try {
+    terminal.ptyProcess.kill();
+  } catch (error) {
+    console.warn(`Unable to stop terminal ${terminal.id}:`, error);
+  }
+  cleanupCodexHome(terminal.codexHome);
+  terminals.delete(terminal.id);
+}
+
+/** renderer 失效后终端画面和 IPC 订阅都不可恢复，因此清理全部旧终端再重建页面。 */
+function stopAllManagedTerminals(): void {
+  for (const terminal of [...terminals.values()]) stopManagedTerminal(terminal);
+}
+
+/** 记录脱敏的 renderer 退出信息，供长期运行问题复盘，不写入终端内容或用户凭据。 */
+async function appendRendererFailureLog(details: Electron.RenderProcessGoneDetails): Promise<void> {
+  await ensureStorage();
+  const entry = {
+    timestamp: new Date().toISOString(),
+    reason: details.reason,
+    exitCode: details.exitCode,
+    appVersion: app.getVersion(),
+    electronVersion: process.versions.electron,
+    chromeVersion: process.versions.chrome
+  };
+  await fs.appendFile(storageFile("renderer-failures.jsonl"), `${JSON.stringify(entry)}\n`, "utf8");
+}
+
+/**
+ * renderer 崩溃会留下只有原生菜单可用的黑色窗口。有限次数自动重载可恢复操作，
+ * 连续失败则交给用户决定重启或退出，避免无限崩溃循环。
+ */
+function recoverRenderer(details: Electron.RenderProcessGoneDetails): void {
+  if (details.reason === "clean-exit") return;
+  void appendRendererFailureLog(details).catch((error) => console.warn("Unable to persist renderer failure:", error));
+  stopAllManagedTerminals();
+
+  const timestamp = Date.now();
+  rendererRecoveryTimestamps = rendererRecoveryTimestamps.filter((value) => timestamp - value < 60_000);
+  rendererRecoveryTimestamps.push(timestamp);
+  if (rendererRecoveryTimestamps.length <= 2) {
+    setTimeout(() => {
+      if (!mainWindow || mainWindow.webContents.isDestroyed()) return;
+      mainWindow.webContents.reload();
+    }, 250);
+    return;
+  }
+
+  void dialog.showMessageBox({
+    type: "error",
+    title: "ShellX 渲染进程反复退出",
+    message: "终端界面连续恢复失败。为避免反复黑屏，请重启 ShellX。",
+    detail: `退出原因：${details.reason}（${details.exitCode}）`,
+    buttons: ["重启 ShellX", "退出"],
+    defaultId: 0,
+    cancelId: 1
+  }).then(({ response }) => {
+    if (response === 0) app.relaunch();
+    app.exit(response === 0 ? 0 : 1);
   });
 }
 
@@ -943,6 +1016,14 @@ function createMainWindow(): void {
   };
   mainWindow.on("enter-full-screen", notifyFullScreenState);
   mainWindow.on("leave-full-screen", notifyFullScreenState);
+  mainWindow.webContents.on("render-process-gone", (_event, details) => recoverRenderer(details));
+  mainWindow.webContents.on("unresponsive", () => {
+    console.warn("ShellX renderer is unresponsive", {
+      timestamp: new Date().toISOString(),
+      appVersion: app.getVersion(),
+      electronVersion: process.versions.electron
+    });
+  });
 
   if (app.isPackaged) {
     void mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
@@ -1093,6 +1174,8 @@ async function createPty(request: CreateTerminalRequest): Promise<ManagedTermina
     if (displayChunk?.length) sendTerminalData(terminal, displayChunk);
   });
   ptyProcess.onExit(({ exitCode, signal }) => {
+    if (terminal.disposed) return;
+    terminal.disposed = true;
     terminal.transfer?.child.kill("SIGTERM");
     cleanupCodexHome(terminal.codexHome);
     if (!terminal.pendingZmodemInput && terminal.pendingZmodemScanTail?.length) {
@@ -1588,17 +1671,11 @@ ipcMain.on("terminal:resize", (_event, payload: { id: string; cols: number; rows
 ipcMain.on("terminal:dispose", (_event, payload: { id: string }) => {
   const terminal = terminals.get(payload.id);
   if (!terminal) return;
-  terminal.ptyProcess.kill();
-  cleanupCodexHome(terminal.codexHome);
-  terminals.delete(payload.id);
+  stopManagedTerminal(terminal);
 });
 
 app.on("window-all-closed", () => {
-  for (const terminal of terminals.values()) {
-    terminal.ptyProcess.kill();
-    cleanupCodexHome(terminal.codexHome);
-  }
-  terminals.clear();
+  stopAllManagedTerminals();
   if (process.platform !== "darwin") app.quit();
 });
 
