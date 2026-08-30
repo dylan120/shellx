@@ -73,6 +73,8 @@ export interface ScriptLibrary {
 export interface AppSettings {
   theme: ThemeMode;
   reopenPreviousTabs: boolean;
+  /** 新建本机终端后由登录 shell 执行的可选命令；空值保持默认交互式登录 shell。 */
+  localStartupCommand: string;
   copySelectionToClipboard: boolean;
   terminalScrollback: number;
   autoFreezeTabs: boolean;
@@ -106,6 +108,8 @@ export interface LocalTerminalRequest {
   kind: "local";
   cwd?: string;
   shell?: string;
+  /** 作为 shell 的独立命令参数执行，避免经字符串拼接产生额外转义。 */
+  startupCommand?: string;
   initialCols?: number;
   initialRows?: number;
 }

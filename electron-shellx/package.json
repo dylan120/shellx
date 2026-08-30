@@ -10,6 +10,7 @@
     "build:main": "tsc -p tsconfig.main.json",
     "start": "npm run build && electron .",
     "start:app": "npm run package:dir && open -n release/mac-arm64/ShellX.app",
+    "test": "npm run build:main && node --test tests/*.test.mjs",
     "generate:icon": "mkdir -p assets && node scripts/generate-icon.mjs && iconutil -c icns build/icon.iconset -o assets/icon.icns",
     "package:dir": "npm run generate:icon && npm run build && electron-builder --mac dir && codesign --force --deep --sign - release/mac-arm64/ShellX.app && xattr -cr release/mac-arm64/ShellX.app",
     "watch:main": "tsc -p tsconfig.main.json --watch --preserveWatchOutput",

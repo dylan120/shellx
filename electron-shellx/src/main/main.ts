@@ -28,6 +28,7 @@ import type {
   TerminalExitPayload,
   ZmodemStatusPayload
 } from "../shared/terminal.js";
+import { localShellArgs } from "./local-shell.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -109,6 +110,7 @@ interface ContextMenuRequest {
 const defaultSettings: AppSettings = {
   theme: "system",
   reopenPreviousTabs: true,
+  localStartupCommand: "",
   copySelectionToClipboard: false,
   terminalScrollback: 10000,
   autoFreezeTabs: true,
@@ -1061,13 +1063,6 @@ function shellPath(request: CreateTerminalRequest): string {
   return process.env.SHELL || "/bin/zsh";
 }
 
-function localShellArgs(shell: string): string[] {
-  const name = path.basename(shell);
-  if (["bash", "zsh", "sh", "ksh", "mksh"].includes(name)) return ["-l"];
-  if (name === "fish") return ["--login"];
-  return [];
-}
-
 function terminalEnvironment(request: CreateTerminalRequest, localShell?: string, codexHome?: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
   if (request.kind === "local") {
@@ -1154,7 +1149,7 @@ async function createPty(request: CreateTerminalRequest): Promise<ManagedTermina
 
   const ptyProcess = request.kind === "ssh"
     ? pty.spawn("/usr/bin/ssh", sshArgs(request), options)
-    : pty.spawn(localShell ?? shellPath(request), localShellArgs(localShell ?? shellPath(request)), options);
+    : pty.spawn(localShell ?? shellPath(request), localShellArgs(localShell ?? shellPath(request), request.startupCommand), options);
 
   const title = request.kind === "ssh"
     ? `${request.username ? `${request.username}@` : ""}${request.host}`

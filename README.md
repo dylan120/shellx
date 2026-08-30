@@ -14,7 +14,7 @@ ShellX 是面向 macOS 的 SSH 会话管理桌面应用。当前仓库已切换�
 - 脚本管理支持 Shell/Python 语法高亮；批量执行通过系统 `/usr/bin/ssh` 非交互执行脚本。
 - 终端支持 xterm.js fit/resize、长行重排、`Command + ←/→` 行首/行尾、选区复制、右键菜单、状态栏和 lrzsz/SFTP 传输入口。
 - 可将本机文件拖入终端；ShellX 会把文件绝对路径按 shell 可用格式写入当前光标位置，不会自动执行命令。
-- 全局设置支持主题、窗口行为、终端历史行数、后台标签冻结和应用更新。
+- 全局设置支持主题、窗口行为、本机终端启动命令、终端历史行数、后台标签冻结和应用更新。
 - 应用更新读取 GitHub Release，下载带 SHA256 校验的 `.dmg` 或 `.zip` 资产，下载完成后由用户点击重启安装。
 
 ## 常用命令
@@ -37,6 +37,8 @@ npm run package:dir
 ```
 
 `npm run dev` 会启动 Vite 和 Electron 开发环境。`npm run package:dir` 会生成 `electron-shellx/release/mac-arm64/ShellX.app`，并做 ad-hoc 签名和扩展属性清理。
+
+如需让以后新建的本机终端统一进入指定 shell，可在“全局配置 → 本机终端 → 启动命令”中填写 `exec zsh -il`。留空时继续使用系统默认登录 shell；该设置不会修改已经打开的标签，也不会作用于 SSH 会话。启动命令以明文保存在本机设置中，不应包含密码或 Token。
 
 ## 生成 DMG
 本仓库当前提供一版可直接在 Xcode 中打开的 MVP 工程，包含：
@@ -97,7 +99,7 @@ npm run package:dir
 - 终端输入会将增强键盘协议下的可打印字符和 Ctrl 组合键归一化为普通 UTF-8 或传统控制字节，并过滤焦点切换报告和方向键释放事件，避免远端 shell 将 `CSI u` 或扩展 CSI 序列回显到提示符
 - lrzsz 与 SFTP 上传下载进行中按 `Ctrl+C` 会取消当前传输，并清理本地 helper / sftp 子进程
 - 默认会先打开一个“本机终端”标签；你仍可继续从左侧会话树打开 SSH 标签，并在顶部标签栏间切换
-- 默认打开的“本机终端”会以非 login shell 方式启动；复制出来的新本机终端标签同样使用非 login shell，避免重复加载 login 初始化逻辑
+- 默认打开的“本机终端”会以登录 shell 方式启动；可在“全局配置 → 本机终端”设置每次新建本机标签时执行的启动命令，例如 `exec zsh -il`。留空时保持默认登录 shell，已有设置文件会自动补齐空配置
 - 本机终端启动时会同步更新子进程的 `SHELL` 环境变量，使其与实际启动的 shell 一致，避免 `echo $SHELL` 与真实进程不一致
 - 本机终端启动时会优先继承宿主进程已有的 `LANG` / `LC_ALL` / `LC_CTYPE`；若图形环境未提供 locale，则兜底为 UTF-8，避免 `ls` 等命令显示中文目录名乱码
 - 本机交互终端会移除宿主进程继承来的 `NO_COLOR`，并保留 `TERM=xterm-256color` / `COLORTERM=truecolor`，避免 Codex CLI 等工具因环境变量禁用 ANSI 彩色输出。
@@ -163,7 +165,7 @@ npm run package:dir
 - 当前版本已移除 `lrzsz` 传输时固定 `4 KiB` 缓冲限制，局域网场景会改用工具默认协商参数以避免异常低速
 - 当前已增强 `tmux` / 包装 shell 命令下的方向识别与多文件上传；目录上传/下载仍建议优先使用右键菜单中的 SFTP
 - 当前 SFTP 下载尚未提供远端文件树浏览，下载文件或文件夹时需要手动输入远端路径
-- 当前本机终端默认优先使用 `/bin/zsh` 作为交互式非 login shell 启动；若目标机器不存在该路径，会自动退回用户环境中的 `SHELL` 或 `/bin/bash`
+- 当前本机终端默认使用用户环境中的 `SHELL`，缺失时回退到 `/bin/zsh`；自定义启动命令由该 shell 执行，命令结束后是否继续停留由命令自身决定
 - 当前 `known_hosts` 由 ShellX 单独管理在 `Application Support/ShellX/known_hosts`，不会直接写入用户 `~/.ssh/known_hosts`
 - 当前 host key 确认依赖 `ssh-keyscan` 预扫描结果；应用会显式尝试拉取 `ed25519/ecdsa/rsa` 多种 host key 算法。若目标端口在 SSH 握手阶段直接断开或网络环境限制扫描返回，未知主机会继续展示底层 `ssh-keyscan` 输出；已存在 ShellX `known_hosts` 记录的主机会在扫描失败时回退到 OpenSSH 严格校验，实际 SSH/SFTP 连接仍使用 `StrictHostKeyChecking=yes`
 - 当前 SSH 会尝试通过 `SendEnv/SetEnv` 向远端发送 `LANG` / `LC_CTYPE`；若服务器禁用了 `AcceptEnv`，ShellX 只能保证本地 `ssh` 客户端保持 UTF-8，无法强制远端 shell 切换 locale

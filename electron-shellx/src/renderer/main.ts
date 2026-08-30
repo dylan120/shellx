@@ -117,7 +117,8 @@ let lastSessionClick: { id: string; at: number } | null = null;
 let pendingSessionClickRenderTimer: number | undefined;
 let suppressNextSessionClickID: string | null = null;
 let terminalFitFrame: number | undefined;
-let terminalTabsRenderFrame: number | undefined;
+let terminalTabRefreshFrame: number | undefined;
+const pendingTerminalTabRefreshIDs = new Set<string>();
 let selectionClipboardTimer: number | undefined;
 let selectionClipboardSerial = 0;
 
@@ -210,6 +211,11 @@ function normalizeScriptLibrary(library: Partial<ScriptLibrary> | null | undefin
 
 function sessionTitle(session: SSHSessionProfile): string {
   return session.name.trim() || session.host.trim() || "未命名会话";
+}
+
+/** 所有本机标签统一读取当前全局启动配置，避免首次启动和菜单新建行为漂移。 */
+function localTerminalRequest(): CreateTerminalRequest {
+  return { kind: "local", startupCommand: snapshot.settings.localStartupCommand };
 }
 
 async function persistWorkspace(): Promise<void> {
@@ -326,14 +332,17 @@ function scheduleActiveTerminalFitAfterLayout(): void {
 }
 
 /**
- * 合并同一帧内的标签状态更新，避免后台高频输出反复销毁并重建标签 DOM。
- * 终端内容仍会立即写入 xterm；这里只延迟未读标记和连接状态的视觉刷新。
+ * 合并同一帧内同一终端的视觉状态更新。
+ * 高频输出不能重建整个标签栏，否则会销毁悬停标签和预览节点并造成持续闪烁。
  */
-function scheduleTerminalTabsRender(): void {
-  if (terminalTabsRenderFrame) return;
-  terminalTabsRenderFrame = window.requestAnimationFrame(() => {
-    terminalTabsRenderFrame = undefined;
-    renderTabs();
+function scheduleTerminalTabRefresh(tabID: string): void {
+  pendingTerminalTabRefreshIDs.add(tabID);
+  if (terminalTabRefreshFrame) return;
+  terminalTabRefreshFrame = window.requestAnimationFrame(() => {
+    terminalTabRefreshFrame = undefined;
+    const tabIDs = [...pendingTerminalTabRefreshIDs];
+    pendingTerminalTabRefreshIDs.clear();
+    for (const pendingTabID of tabIDs) refreshTerminalTabState(pendingTabID);
   });
 }
 
@@ -1297,6 +1306,36 @@ function tabStatus(tab: TerminalTab): { label: string; icon: string; className: 
   return { label: "已连接", icon: "●", className: "state-connected", help: "终端已连接并正在运行。" };
 }
 
+const terminalTabStateClasses = ["state-connected", "state-disconnected", "state-prompt", "state-error"] as const;
+
+/** 原位同步单个标签及其可见预览，保留 hover、拖放和滚动相关 DOM 状态。 */
+function refreshTerminalTabState(tabID: string): void {
+  const tab = tabs.get(tabID);
+  if (!tab) return;
+  const row = document.querySelector<HTMLButtonElement>(`.terminal-tab[data-tab-id="${CSS.escape(tabID)}"]`);
+  if (!row) return;
+  const status = tabStatus(tab);
+  row.classList.toggle("active", tab.id === activeTabID);
+  row.classList.toggle("unread", tab.unread);
+  row.classList.remove(...terminalTabStateClasses);
+  row.classList.add(status.className);
+  row.title = `${tab.subtitle}\n${status.help}`;
+  const statusIcon = row.querySelector<HTMLElement>(".tab-status-icon");
+  const statusBadge = row.querySelector<HTMLElement>(".tab-status-badge");
+  if (statusIcon) statusIcon.textContent = status.icon;
+  if (statusBadge) statusBadge.textContent = status.label;
+
+  const unread = row.querySelector<HTMLElement>(".tab-unread");
+  if (tab.exited || !tab.unread) {
+    unread?.remove();
+  } else if (unread) {
+    unread.className = `tab-unread ${tab.attention}`;
+  } else {
+    row.querySelector(".tab-close")?.before(h("span", `tab-unread ${tab.attention}`, ""));
+  }
+  refreshVisibleTabPreview(tab, row);
+}
+
 function previewText(tab: TerminalTab): string {
   const buffer = tab.terminal.buffer.active;
   const end = buffer.baseY + buffer.cursorY;
@@ -1313,6 +1352,7 @@ function showTabPreview(tab: TerminalTab, anchor: HTMLElement): void {
   hideTabPreview();
   const rect = anchor.getBoundingClientRect();
   const preview = h("div", "tab-preview");
+  preview.dataset.tabId = tab.id;
   const status = tabStatus(tab);
   preview.innerHTML = `<div class="tab-preview-header"><span class="preview-terminal-icon"></span><strong></strong><em class="${status.className}"></em></div><pre class="terminal-preview-screen"></pre>`;
   preview.querySelector("strong")!.textContent = tab.title;
@@ -1321,6 +1361,26 @@ function showTabPreview(tab: TerminalTab, anchor: HTMLElement): void {
   preview.style.left = `${Math.min(rect.left, window.innerWidth - 560)}px`;
   preview.style.top = `${rect.bottom + 8}px`;
   document.body.append(preview);
+}
+
+/** 只更新当前标签对应的预览内容，不改变预览节点身份和锚点位置。 */
+function refreshVisibleTabPreview(tab: TerminalTab, anchor: HTMLElement): void {
+  const preview = document.querySelector<HTMLElement>(`.tab-preview[data-tab-id="${CSS.escape(tab.id)}"]`);
+  if (!preview) return;
+  const status = tabStatus(tab);
+  const rect = anchor.getBoundingClientRect();
+  const title = preview.querySelector<HTMLElement>("strong");
+  const state = preview.querySelector<HTMLElement>("em");
+  const screen = preview.querySelector<HTMLElement>("pre");
+  if (title) title.textContent = tab.title;
+  if (state) {
+    state.classList.remove(...terminalTabStateClasses);
+    state.classList.add(status.className);
+    state.textContent = status.label;
+  }
+  if (screen) screen.textContent = previewText(tab);
+  preview.style.left = `${Math.min(rect.left, window.innerWidth - 560)}px`;
+  preview.style.top = `${rect.bottom + 8}px`;
 }
 
 function hideTabPreview(): void {
@@ -1493,13 +1553,18 @@ async function openTerminal(request: CreateTerminalRequest, titleOverride?: stri
     const displayData = displayableTerminalData(data);
     const hasZmodemMarker = zmodemPattern.test(data);
     const fallbackZmodemDirection = tab && hasZmodemMarker ? zmodemDirection(data, tab.recentOutput) : undefined;
-    if (displayData) terminal.write(displayData);
+    if (displayData) {
+      terminal.write(displayData, () => {
+        // xterm 完成解析后再刷新预览，确保最后一块输出不会停留在旧画面。
+        if (activeTabID !== id) scheduleTerminalTabRefresh(id);
+      });
+    }
     if (tab) {
       tab.recentOutput = `${tab.recentOutput}${displayData}`.slice(-4096);
       if (tab.connecting) {
         tab.connecting = false;
         if (activeTabID === id) setStatus(defaultStatusForTab(tab), false, false);
-        scheduleTerminalTabsRender();
+        scheduleTerminalTabRefresh(id);
       }
       void handlePasswordPrompt(tab);
       if (!hasZmodemMarker && !tab.zmodemActive) tab.zmodemHandled = false;
@@ -1509,14 +1574,14 @@ async function openTerminal(request: CreateTerminalRequest, titleOverride?: stri
       tab.unread = true;
       if (/password:|passphrase|\?\s*$|\[sudo\]|continue connecting|yes\/no/i.test(data)) tab.attention = "prompt";
       if (/error|failed|denied|refused|timeout|no route|permission denied/i.test(data)) tab.attention = "error";
-      scheduleTerminalTabsRender();
+      scheduleTerminalTabRefresh(id);
     }
   });
   const disposeExit = window.shellx.terminal.onExit(id, ({ exitCode }) => {
     const tab = tabs.get(id);
     if (tab) { tab.exited = true; tab.connecting = false; }
     terminal.writeln(`\r\n[ShellX] process exited: ${exitCode ?? "signal"}`);
-    renderTabs();
+    scheduleTerminalTabRefresh(id);
     setStatus("Process exited", false, false);
   });
   const disposeZmodem = window.shellx.terminal.onZmodemStatus(id, (payload) => {
@@ -1928,6 +1993,7 @@ function renderSettings(content: HTMLElement): () => void {
   form.append(h("div", "settings-title", "全局配置"));
   form.append(settingsSection("界面主题", [selectField("主题模式", settings.theme, [["system", "跟随系统"], ["light", "浅色"], ["dark", "深色"]], (value) => { settings.theme = value; void persistSettings(); }), helpText("可在跟随系统、浅色和深色之间切换；修改后会立即作用于当前应用窗口。") ]));
   form.append(settingsSection("窗口行为", [checkbox("重新打开上次标签页", settings.reopenPreviousTabs, (value) => { settings.reopenPreviousTabs = value; void persistSettings(); }), helpText("关闭后会在主窗口重新打开时保留标签页；关闭该选项后，下次打开只进入默认状态。") ]));
+  form.append(settingsSection("本机终端", [field("启动命令", settings.localStartupCommand, (value) => { settings.localStartupCommand = value; void persistSettings(); }, { textarea: true, placeholder: "例如：exec zsh -il" }), helpText("每次新建本机终端时执行。留空则直接打开默认登录 shell；若希望执行配置后继续停留在终端，请让命令最后 exec 一个交互式 shell，例如 exec zsh -il。命令以明文保存在本机设置中，请勿填写密码或 Token。") ]));
   form.append(settingsSection("鼠标 / 触控板行为", [checkbox("选中文本复制", settings.copySelectionToClipboard, (value) => { settings.copySelectionToClipboard = value; void persistSettings(); }), helpText("控制终端选区变化后是否自动复制。关闭后仍可继续使用系统复制命令手动复制。") ]));
   form.append(settingsSection("终端性能", [field("终端历史行数上限", settings.terminalScrollback, (value) => { settings.terminalScrollback = Number(value) || 10000; void persistSettings(); }, { type: "number" }), checkbox("自动冻结后台标签", settings.autoFreezeTabs, (value) => { settings.autoFreezeTabs = value; void persistSettings(); }), field("打开多少个终端后开始自动冻结", settings.freezeThreshold, (value) => { settings.freezeThreshold = Number(value) || 12; void persistSettings(); }, { type: "number" }), field("保留最近多少个后台标签为热标签", settings.hotTabCount, (value) => { settings.hotTabCount = Number(value) || 6; void persistSettings(); }, { type: "number" }), helpText("固定标签、连接中、传输中、等待确认或出现提示/错误的标签不会被自动冻结。") ]));
   form.append(settingsSection("应用更新", [checkbox("自动更新", settings.autoUpdateEnabled, (value) => { settings.autoUpdateEnabled = value; void persistSettings(); }), updateControls.element]));
@@ -2044,7 +2110,7 @@ async function handleAppCommand(event: AppCommandEvent): Promise<void> {
     case "session:edit": editSession(id); break;
     case "session:duplicate": await duplicateSession(id); break;
     case "session:delete": await deleteSession(id); break;
-    case "terminal:newLocal": await openTerminal({ kind: "local" }, "本机终端", "local"); break;
+    case "terminal:newLocal": await openTerminal(localTerminalRequest(), "本机终端", "local"); break;
     case "tab:activate": if (id) activateTab(id); break;
     case "tab:close": closeTab(id ?? activeTabID ?? ""); break;
     case "tab:closeOthers": closeOtherTabs(id ?? activeTabID); break;
@@ -2101,5 +2167,5 @@ void (async () => {
   render();
   const stack = document.querySelector<HTMLDivElement>("#terminal-stack");
   if (stack) resizeObserver.observe(stack);
-  void openTerminal({ kind: "local" }, "本机终端", "local");
+  void openTerminal(localTerminalRequest(), "本机终端", "local");
 })();
